@@ -217,8 +217,21 @@
   - 新增覆盖：Remote 完整 metadata 落库；缺失 / 空白 metadata 回退占位值；metadata trim 且保留特殊字符；metadata 不影响 ownership；metadata 与归属归一**都不碰 SourceSpan**；归一化不重建 `Scene.id` / `beatsByScene` key；两次导入 metadata 与 ownership 不串；**Local Sample 明确忽略 request metadata**；Repository 层暴露当前导入的 metadata；ImportViewModel 元信息透传与「导入中编辑不解除 Importing」
 - **构建结果**：`assembleDebug` BUILD SUCCESSFUL，无 Kotlin 编译警告
 - **越界检查**：`git status` 仅 7 个文件（5 生产 + 2 测试）；Domain / DTO / Validator / Mapper / Remote / PromptBuilder / ParseSchema / StoryContentStore / 三个 InMemory Repository / `ui/explorer` / `ui/novel` / Navigation / Gradle **均未改动**
-- **Git**：**未 commit、未 push**，HEAD 仍为 `9d5917752dd7600fe1fc9da6f4008d513f5397af`（Phase 5B-2 改动尚未提交）
 - **文档修正（D7）**：修正了本文件中被 5B-1 Review Gate 推翻的旧 ownership bullet，以及过时的 Git 状态。
+
+### Phase 5B-2 最终封板记录
+
+- **Review Gate**：**PASS**（源码 Review Gate，未发现本阶段 blocker）
+- **commit**：`a047904a6c28d90fdc71719055d3eac45ebe3528`（`feat: add import-time story metadata (Phase 5B-2)`，父 `9d59177`）
+- **Git**：已 push 到 `origin/master`；`master` = `origin/master` = `a047904`；working tree clean
+- **封板状态**：Phase 5B-2 已 COMPLETE / CLOSED
+- **最终验证**：`./gradlew test --rerun` → **109 tests / 0 failures / 0 errors / 1 skipped**（唯一 skip = `DeepSeekLiveIntegrationTest`，原因无有效 API Key）；`./gradlew assembleDebug` → **BUILD SUCCESSFUL**，无 Kotlin 编译警告
+- **功能基线（封板时确认）**
+  - 作品 / 章节 metadata 由**用户在导入时显式输入**（方案 α）
+  - `StoryImportRequest` 扩展四个 metadata 字段：`storyTitle` / `author` / `synopsis` / `chapterTitle`
+  - **Remote** 使用用户提供的 metadata
+  - **Local Sample** 忽略 request metadata，保持 fixture 语义
+  - trim 后为空 → 回退 placeholder（`未命名作品` / `未命名作者` / `""` / `未命名章节`）；从不把空白字符串写入 Domain
 
 ---
 

@@ -1,15 +1,16 @@
 # CURRENT PHASE
 
 > 本文件**只表示「现在」**。阶段切换时整体重写，不要在这里堆积历史（历史放 `PHASE_LOG.md`）。
-> 最后更新：Phase 5B-2 实现完成后（未 commit）。
+> 最后更新：Phase 5B-2 CLOSED（commit `a047904`，已 push 到 `origin/master`）。
 
 ## 当前状态
 
-**Phase 5B-2 implementation complete —— 用户显式提供的作品 / 章节元信息已接入导入流程；等待 Review Gate。**
+**Phase 5B-2 CLOSED —— 用户显式提供的作品 / 章节元信息已接入导入流程；已通过源码 Review Gate，未发现本阶段 blocker。**
 
 - **Phase 5A**：**已 COMPLETE / CLOSED**（commit `f30208b`，已 push）
-- **Phase 5B-1**：**已 COMPLETE / CLOSED**（commit `9d5917752dd7600fe1fc9da6f4008d513f5397af`，父 `f30208b`；**已 commit，尚未 push**）
-- **Phase 5B-2**：**实现完成**（元信息由用户显式提供）；**未 commit、未 push**
+- **Phase 5B-1**：**已 COMPLETE / CLOSED**（commit `9d5917752dd7600fe1fc9da6f4008d513f5397af`，父 `f30208b`；已 push）
+- **Phase 5B-2**：**已 COMPLETE / CLOSED**（commit `a047904a6c28d90fdc71719055d3eac45ebe3528`，父 `9d59177`；已 push）
+- **当前 Git**：`master` = `origin/master` = `a047904`，working tree clean
 - Phase 4 真实 DeepSeek 验证仍为 **blocked / deferred**（无有效 API Key），未因本阶段改变
 
 ## 本阶段（Phase 5B-2）目标与结果
@@ -89,19 +90,18 @@ Phase 5B-1 遗留（非 blocker，审计结论：保持不动）：
 
 ## 下一步
 
-**不进入下一 Phase。等待 Phase 5B-2 Review Gate。**
+**不进入下一 Phase。Phase 5B-3 / Phase 6 均未获实施授权；等待下一阶段规划。**
 
 待决策的开放问题（不要在未确认前动手）：
-1. Phase 5B-2 是否验收 / 提交。
-2. 是否补 Compose UI 测试源集（`androidTest`）。
-3. Phase 4 遗留：Key 的注入方式。
-4. `9d59177` 何时 push（当前本地领先 1 个 commit，且本轮还有未提交改动）。
+1. 是否补 Compose UI 测试源集（`androidTest`）。
+2. Phase 4 遗留：Key 的注入方式。
+3. 下一阶段的范围与排期。
 
 ## 当前项目红线（每次开工前自查）
 
 - 本项目**不是**即时通讯软件；普通面对面剧情必须 `LiveScene`。
 - AI 输出**不得**直接进入 Domain，必须走 DTO → Validator → Mapper。
 - 不得为了让 AI 或测试更容易通过而放宽 Validator。
-- 已验收的 Phase 1–5B-1 结构不要无理由重写。
+- 已验收的 Phase 1–5B-2 结构不要无理由重写。
 
 详见 `ARCHITECTURE_RULES.md` 与 `DOMAIN_CONTRACT.md`。
