@@ -109,6 +109,22 @@ ExecutableTimeline（派生、可直接播放）
 - 没有任何事件在演出（空档期 / 位置超出时间轴 / 空时间轴）→ 返回空游标，**不伪造事件**；
 - 负位置按 0 处理。
 
+#### 边界语义（Phase 6B Review Gate 锁定）
+
+| 情形 | 结果 |
+|---|---|
+| 连续事件 `A[0,1000]`、`B[1000,2000]` | `999 → A`；`1000 → B`；`1001 → B`（边界归后开始的那个） |
+| 空档 `A[0,1000]`、`B[1500,2000]` | `1000 → A`；`1001 → 空`；`1499 → 空`；`1500 → B` |
+| 同起点 `A[1000,2000]`、`B[1000,1500]` | `1200 → B`；`1500 → B`；`1800 → A`；`2000 → A` |
+| 重叠 `A[0,2000]`、`B[1000,3000]` | `500 → A`；`1500 → B`；`2500 → B` |
+| 恰好末端（`positionMillis == totalDurationMillis`） | 最后一个事件在该处结束则**仍命中**该事件；否则为空 |
+| 超出末端 | 空游标（**不做**上界 clamp） |
+| 负位置 | 按 0 处理 |
+
+- `cursorAt` 的正确性依赖 `positions` 按 `startOffsetMillis` **非降序**（由 `buildExecutableTimeline` 保证，并有测试锁定）——因此实现可以用「最后一个命中项」表达「起点最大」。
+- **位置来源**：`StoryPlayViewModel` 交给游标的位置一律是 `PlaybackState` clamp 后的值（∈ `[0, durationMillis]`），所以 UI 侧不会出现越界位置；`cursorAt` 自身的越界行为只是防御性定义。
+- **与 `Completed` 一致**：播放到末端进入 `Completed` 时，位置恰为 `totalDurationMillis`；若最后一个事件在末端结束，当前事件保留为最后一个事件（UI 显示「已结束」同时高亮该事件）。这是**既定语义**，不是缺陷。
+
 ## 播放状态契约（本阶段建立）
 
 `PlaybackStatus` = `Idle` / `Playing` / `Paused` / `Completed`
@@ -122,6 +138,7 @@ ExecutableTimeline（派生、可直接播放）
 | `seekTo(p)` | 位置 clamp 到 `[0, durationMillis]`；从 `Completed` 跳回中间 → `Paused`（可继续播） |
 
 - `positionMillis` 恒在 `[0, durationMillis]`；
+- `seekTo` 只移动位置：**即使位置落在末端也不会进入 `Completed`**（`Completed` 只由 `advanceBy` 到达末端触发）；
 - `progress`（0f..1f）与 `hasPlayableContent`（时长 > 0）是供 UI 使用的派生值；
 - **UI 不复制这些规则**：Compose 只渲染 `PlaybackState` 并把意图回调给 ViewModel。
 

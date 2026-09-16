@@ -404,6 +404,94 @@ class StoryPlayViewModelTest {
         assertEquals(0L, vm.playbackState.value.positionMillis)
     }
 
+    @Test
+    fun `completing playback keeps the last event as the current one`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.play()
+        advanceUntilIdle()
+
+        val state = vm.playbackState.value
+        assertEquals(PlaybackStatus.Completed, state.status)
+        assertEquals(3_500L, state.positionMillis)
+        // Completed 与「位置正好落在最后一个事件末端」并存：这是 Phase 6B 的既定语义
+        assertEquals("pb-2", state.currentBeatId)
+        assertEquals("p4", state.currentEventId)
+    }
+
+    @Test
+    fun `seeking to the very end locates the last event without completing`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.seekTo(3_500L)
+
+        val state = vm.playbackState.value
+        // seek 不是播放：位置可以落在末端，但状态由播放（advance）驱动
+        assertEquals(PlaybackStatus.Idle, state.status)
+        assertEquals(3_500L, state.positionMillis)
+        assertEquals("pb-2", state.currentBeatId)
+        assertEquals("p4", state.currentEventId)
+    }
+
+    @Test
+    fun `seeking beyond the end is clamped before locating`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.seekTo(99_000L)
+
+        val state = vm.playbackState.value
+        assertEquals(3_500L, state.positionMillis)
+        assertEquals("p4", state.currentEventId)
+    }
+
+    @Test
+    fun `a negative seek locates the first event`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.seekTo(-100L)
+
+        val state = vm.playbackState.value
+        assertEquals(0L, state.positionMillis)
+        assertEquals("pb-1", state.currentBeatId)
+        assertEquals("p1", state.currentEventId)
+    }
+
+    @Test
+    fun `pausing keeps the current event`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+        vm.play()
+        vm.seekTo(500L)
+
+        vm.pause()
+
+        val state = vm.playbackState.value
+        assertEquals(PlaybackStatus.Paused, state.status)
+        assertEquals(500L, state.positionMillis)
+        assertEquals("p1", state.currentEventId)
+    }
+
+    @Test
+    fun `the current event follows the advancing position`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.play()
+        advanceTimeBy(500L)
+        runCurrent()
+        assertEquals("p1", vm.playbackState.value.currentEventId)
+
+        advanceTimeBy(2_000L)
+        runCurrent()
+        assertEquals("p2", vm.playbackState.value.currentEventId)
+    }
+
     private suspend fun linesOf(sceneId: String, beatId: String): List<PerformanceLine> =
         viewModel(sceneId = sceneId).uiState.first { !it.isLoading }
             .beats.first { it.id == beatId }

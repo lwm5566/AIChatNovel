@@ -374,6 +374,29 @@
 - **Git**：`origin/master` 仍为 `39e2061`；本地领先 1 个 commit，**未 push**
 - **状态**：实现完成，**等待 Review Gate**
 
+### Phase 6B Review Gate（时间边界语义锁定）
+
+- **范围**：只针对 `cursorAt()` 的时间边界语义做一次只读核验 + 最小测试/文档补充；**未改生产逻辑**。
+- **结论**：**未发现生产缺陷**。当前实现与 Phase 6B 报告的定义完全一致：命中区间为闭区间 `[startOffsetMillis, endOffsetMillis]`；重叠时取「起点最大者」；起点相同保持稳定顺序；空档期不伪造事件。
+- **实现要点**：`cursorAt` 用 `positions.lastOrNull { 命中 }` 表达上述规则，其正确性依赖 `positions` 按 `startOffsetMillis` **非降序** —— 由 `buildExecutableTimeline` 的结构（节拍 `order` 升序 + 节拍内 `orderedEvents` 升序 + 节拍起点累加单调不减）保证；本 Gate 新增测试显式锁定该不变量。
+
+| Case | 输入 | 实际结果 | 与定义 |
+|---|---|---|---|
+| A 连续 | `A[0,1000]`、`B[1000,2000]` | `999→A`、`1000→B`、`1001→B` | 一致 |
+| B 空档 | `A[0,1000]`、`B[1500,2000]` | `1000→A`、`1001→空`、`1499→空` | 一致（未伪造） |
+| C 同起点 | `A[1000,2000]`、`B[1000,1500]` | `1200→B`、`1500→B`、`1800→A`、`2000→A` | 一致（确定、可测） |
+| D 重叠 | `A[0,2000]`、`B[1000,3000]` | `500→A`、`1500→B`、`2500→B` | 一致 |
+| E 边界 | 负 / 0 / `==total` / `>total` | 负→按 0；`==total` 且末尾事件在此结束→命中；`>total`→空 | 一致、稳定 |
+
+- **PlaybackState 与 Cursor 的一致性**：两者同为 `Long` 毫秒；`StoryPlayViewModel` 的 3 处 `cursorAt` 调用（`play` / `seekTo` / 推进）传的都是 `PlaybackState` **clamp 后**的 `positionMillis`，因此游标输入恒在 `[0, durationMillis]`。不存在「状态与游标冲突」的组合。
+- **`positionMillis == totalDurationMillis` 的既定语义**：`Completed` 与「当前事件 = 最后一个事件」并存（UI 显示「已结束」同时高亮该事件）。这是 Phase 6B 的既定设计，**本次未改变**，已由新增测试锁定。
+- **`seekTo` 到末端**：只移动位置，**不**进入 `Completed`（`Completed` 只由 `advanceBy` 到达末端触发）。行为确定，已由新增测试锁定。
+- **本 Gate 改动**：
+  - 新增测试 12 例（`TimelineMappingTest` +6、`StoryPlayViewModelTest` +6）；**未删除任何既有测试、未改任何既有断言、未新增 skip、未改生产逻辑**；
+  - 文档补充：`CURRENT_PHASE.md` 的「游标规则」新增「边界语义」表，并在播放状态契约中写明 `seekTo` 到末端不触发 `Completed`。
+- **验证**：`./gradlew test --rerun` → **233 tests / 0 failures / 0 errors / 1 skipped**（Debug 与 Release 均 233）；`assembleDebug` BUILD SUCCESSFUL；Kotlin 警告 0；`git diff --check` clean。
+- **Git**：新增一个 Review Gate commit（**不 amend** `a8bb2e8`）；`origin/master` 仍为 `39e2061`；**未 push**。
+
 ---
 
 ## 未开始

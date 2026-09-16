@@ -303,6 +303,120 @@ class TimelineMappingTest {
         assertEquals("second", cursor(timeline, 400L).eventId)
     }
 
+    @Test
+    fun `continuous events hand the boundary over to the later event`() {
+        val timeline = buildExecutableTimeline(
+            scene = scene(),
+            beats = listOf(
+                beat(
+                    "beat-1", 1,
+                    narration("a", startOffsetMillis = 0L, durationMillis = 1_000L),
+                    narration("b", startOffsetMillis = 1_000L, durationMillis = 1_000L),
+                ),
+            ),
+        )
+
+        assertEquals("a", cursor(timeline, 999L).eventId)
+        assertEquals("b", cursor(timeline, 1_000L).eventId)
+        assertEquals("b", cursor(timeline, 1_001L).eventId)
+    }
+
+    @Test
+    fun `a gap never resolves to an event`() {
+        val timeline = buildExecutableTimeline(
+            scene = scene(),
+            beats = listOf(
+                beat(
+                    "beat-1", 1,
+                    narration("a", startOffsetMillis = 0L, durationMillis = 1_000L),
+                    narration("b", startOffsetMillis = 1_500L, durationMillis = 500L),
+                ),
+            ),
+        )
+
+        assertEquals(2_000L, timeline.totalDurationMillis)
+        assertEquals("a", cursor(timeline, 1_000L).eventId)
+        assertNull(cursor(timeline, 1_001L).eventId)
+        assertNull(cursor(timeline, 1_499L).eventId)
+        assertEquals("b", cursor(timeline, 1_500L).eventId)
+    }
+
+    @Test
+    fun `overlapping events resolve to the one that started later`() {
+        val timeline = buildExecutableTimeline(
+            scene = scene(),
+            beats = listOf(
+                beat(
+                    "beat-1", 1,
+                    narration("a", startOffsetMillis = 0L, durationMillis = 2_000L),
+                    narration("b", startOffsetMillis = 1_000L, durationMillis = 2_000L),
+                ),
+            ),
+        )
+
+        assertEquals("a", cursor(timeline, 500L).eventId)
+        assertEquals("b", cursor(timeline, 1_500L).eventId)
+        assertEquals("b", cursor(timeline, 2_500L).eventId)
+    }
+
+    @Test
+    fun `events sharing a start keep the stable order across their whole span`() {
+        val timeline = buildExecutableTimeline(
+            scene = scene(),
+            beats = listOf(
+                beat(
+                    "beat-1", 1,
+                    narration("long", startOffsetMillis = 1_000L, durationMillis = 1_000L),
+                    narration("short", startOffsetMillis = 1_000L, durationMillis = 500L),
+                ),
+            ),
+        )
+
+        // 起点相同：稳定顺序中靠后的胜出；较短的那个结束后只剩较长的一个
+        assertEquals("short", cursor(timeline, 1_200L).eventId)
+        assertEquals("short", cursor(timeline, 1_500L).eventId)
+        assertEquals("long", cursor(timeline, 1_800L).eventId)
+        assertEquals("long", cursor(timeline, 2_000L).eventId)
+    }
+
+    @Test
+    fun `the exact timeline end still resolves to the event ending there`() {
+        val timeline = buildExecutableTimeline(
+            scene = scene(),
+            beats = listOf(
+                beat(
+                    "beat-1", 1,
+                    narration("a", startOffsetMillis = 0L, durationMillis = 1_000L),
+                    narration("b", startOffsetMillis = 1_000L, durationMillis = 1_000L),
+                ),
+            ),
+        )
+
+        assertEquals(2_000L, timeline.totalDurationMillis)
+        assertEquals("b", cursor(timeline, timeline.totalDurationMillis).eventId)
+    }
+
+    @Test
+    fun `positions stay ordered by start offset so the cursor can take the last match`() {
+        // cursorAt 用「最后一个命中的位置」实现「起点最大」的规则，因此布局必须保持非降序
+        val timeline = buildExecutableTimeline(
+            scene = scene(),
+            beats = listOf(
+                beat("beat-2", 2, narration("second", startOffsetMillis = 0L, durationMillis = 400L)),
+                beat(
+                    "beat-1", 1,
+                    narration("late", startOffsetMillis = 900L, durationMillis = 100L),
+                    narration("early", startOffsetMillis = 0L, durationMillis = 100L),
+                    narration("tie", startOffsetMillis = 0L, durationMillis = 100L),
+                    narration("negative", startOffsetMillis = -300L, durationMillis = 100L),
+                ),
+            ),
+        )
+
+        val starts = timeline.positions.map { it.startOffsetMillis }
+        assertEquals(starts.sorted(), starts)
+    }
+
     // ---------- helpers ----------
 
     private fun cursor(timeline: ExecutableTimeline, positionMillis: Long) =
