@@ -48,6 +48,10 @@ sealed interface ImportStatus {
 data class ImportUiState(
     val mode: StoryImportMode = StoryImportMode.LOCAL_SAMPLE,
     val novelText: String = "",
+    val storyTitle: String = "",
+    val author: String = "",
+    val synopsis: String = "",
+    val chapterTitle: String = "",
     val status: ImportStatus = ImportStatus.Idle,
 )
 
@@ -59,11 +63,20 @@ data class ImportUiState(
  * 成功的结果由数据层写入内容仓库，本类只负责把结果如实转成 UI 状态。
  *
  * [importStory] 是一个 suspend 函数依赖（由容器提供实现），便于测试注入五态结果。
+ * 作品 / 章节元信息（[ImportUiState.storyTitle] 等）由用户在本页填写，发起导入时随请求一并下发；
+ * 它们不参与归属 ID 的生成，也不在导入后修改。
  */
 class ImportViewModel(
     defaultMode: StoryImportMode,
     private val sampleText: String,
-    private val importStory: suspend (StoryImportMode, String) -> StoryImportResult,
+    private val importStory: suspend (
+        StoryImportMode,
+        String,
+        String?,
+        String?,
+        String?,
+        String?,
+    ) -> StoryImportResult,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ImportUiState(mode = defaultMode))
@@ -81,6 +94,22 @@ class ImportViewModel(
         _uiState.update { it.copy(novelText = sampleText, status = it.status.idleUnlessImporting()) }
     }
 
+    fun onStoryTitleChange(storyTitle: String) {
+        _uiState.update { it.copy(storyTitle = storyTitle, status = it.status.idleUnlessImporting()) }
+    }
+
+    fun onAuthorChange(author: String) {
+        _uiState.update { it.copy(author = author, status = it.status.idleUnlessImporting()) }
+    }
+
+    fun onSynopsisChange(synopsis: String) {
+        _uiState.update { it.copy(synopsis = synopsis, status = it.status.idleUnlessImporting()) }
+    }
+
+    fun onChapterTitleChange(chapterTitle: String) {
+        _uiState.update { it.copy(chapterTitle = chapterTitle, status = it.status.idleUnlessImporting()) }
+    }
+
     fun import() {
         val current = _uiState.value
         if (current.status == ImportStatus.Importing) return
@@ -93,7 +122,14 @@ class ImportViewModel(
         _uiState.update { it.copy(status = ImportStatus.Importing) }
 
         viewModelScope.launch {
-            val result = importStory(current.mode, current.novelText)
+            val result = importStory(
+                current.mode,
+                current.novelText,
+                current.storyTitle,
+                current.author,
+                current.synopsis,
+                current.chapterTitle,
+            )
             _uiState.update { it.copy(status = result.toStatus()) }
         }
     }
@@ -106,7 +142,9 @@ class ImportViewModel(
                 ImportViewModel(
                     defaultMode = app.container.config.storyImportMode,
                     sampleText = app.container.sampleNovelText,
-                    importStory = { mode, text -> app.container.importStory(mode, text) },
+                    importStory = { mode, text, storyTitle, author, synopsis, chapterTitle ->
+                        app.container.importStory(mode, text, storyTitle, author, synopsis, chapterTitle)
+                    },
                 )
             }
         }

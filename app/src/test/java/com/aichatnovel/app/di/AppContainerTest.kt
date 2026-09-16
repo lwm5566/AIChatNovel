@@ -5,6 +5,7 @@ import com.aichatnovel.app.data.remote.deepseek.DeepSeekChoice
 import com.aichatnovel.app.data.remote.deepseek.DeepSeekConfig
 import com.aichatnovel.app.data.remote.deepseek.DeepSeekMessage
 import com.aichatnovel.app.data.repository.SampleStoryData
+import com.aichatnovel.app.domain.model.DialogueEvent
 import com.aichatnovel.app.repository.StoryImportFailure
 import com.aichatnovel.app.repository.StoryImportResult
 import kotlinx.coroutines.Dispatchers
@@ -331,7 +332,269 @@ class AppContainerTest {
         assertTrue(container.storyContentStore.content.value.scenes.isEmpty())
     }
 
+    // --- Phase 5B-2: user-provided metadata ---------------------------------
+
+    @Test
+    fun `remote import stores the metadata provided by the user`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(responseFor(modelJson("story-1", "chapter-1")))
+            server.start()
+            val container = containerFor(server, idsFor("story-A", "chapter-A1"))
+
+            val result = container.importStory(
+                StoryImportMode.REMOTE_DEEPSEEK,
+                "小说原文",
+                storyTitle = "星海回声",
+                author = "示例作者",
+                synopsis = "两个习惯了沉默的人。",
+                chapterTitle = "第一章 启程",
+            )
+            assertTrue("期望成功，实际：$result", result is StoryImportResult.Success)
+
+            val imported = requireNotNull(container.storyContentStore.imported.value)
+            assertEquals("星海回声", imported.story.title)
+            assertEquals("示例作者", imported.story.author)
+            assertEquals("两个习惯了沉默的人。", imported.story.synopsis)
+            assertEquals("第一章 启程", imported.chapters.single().title)
+            assertNotEquals("未命名作品", imported.story.title)
+        }
+    }
+
+    @Test
+    fun `missing metadata falls back to the placeholder metadata`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(responseFor(modelJson("story-1", "chapter-1")))
+            server.start()
+            val container = containerFor(server, idsFor("story-A", "chapter-A1"))
+
+            container.importStory(StoryImportMode.REMOTE_DEEPSEEK, "小说原文")
+
+            val imported = requireNotNull(container.storyContentStore.imported.value)
+            assertEquals("未命名作品", imported.story.title)
+            assertEquals("未命名作者", imported.story.author)
+            assertEquals("", imported.story.synopsis)
+            assertEquals("未命名章节", imported.chapters.single().title)
+        }
+    }
+
+    @Test
+    fun `blank metadata falls back to the placeholder metadata`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(responseFor(modelJson("story-1", "chapter-1")))
+            server.start()
+            val container = containerFor(server, idsFor("story-A", "chapter-A1"))
+
+            container.importStory(
+                StoryImportMode.REMOTE_DEEPSEEK,
+                "小说原文",
+                storyTitle = "   ",
+                author = "",
+                synopsis = "   ",
+                chapterTitle = "\t",
+            )
+
+            val imported = requireNotNull(container.storyContentStore.imported.value)
+            assertEquals("未命名作品", imported.story.title)
+            assertEquals("未命名作者", imported.story.author)
+            assertEquals("", imported.story.synopsis)
+            assertEquals("未命名章节", imported.chapters.single().title)
+        }
+    }
+
+    @Test
+    fun `metadata is trimmed and keeps special characters`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(responseFor(modelJson("story-1", "chapter-1")))
+            server.start()
+            val container = containerFor(server, idsFor("story-A", "chapter-A1"))
+
+            container.importStory(
+                StoryImportMode.REMOTE_DEEPSEEK,
+                "小说原文",
+                storyTitle = "  星海「回声」  ",
+                author = " 作者：甲乙\n",
+                synopsis = " 引号\"与'撇号' ",
+                chapterTitle = " 第一章\t",
+            )
+
+            val imported = requireNotNull(container.storyContentStore.imported.value)
+            assertEquals("星海「回声」", imported.story.title)
+            assertEquals("作者：甲乙", imported.story.author)
+            assertEquals("引号\"与'撇号'", imported.story.synopsis)
+            assertEquals("第一章", imported.chapters.single().title)
+        }
+    }
+
+    @Test
+    fun `metadata never changes ownership`() = runTest {
+        MockWebServer().use { server ->
+            // 模型回显了一套完全不同的 id，同时用户又填了 metadata
+            server.enqueue(responseFor(modelJson("story-hallucinated", "chapter-hallucinated")))
+            server.start()
+            val container = containerFor(server, idsFor("story-A", "chapter-A1"))
+
+            container.importStory(
+                StoryImportMode.REMOTE_DEEPSEEK,
+                "小说原文",
+                storyTitle = "星海回声",
+                chapterTitle = "第一章",
+            )
+
+            val imported = requireNotNull(container.storyContentStore.imported.value)
+            assertEquals("story-A", imported.story.id)
+            assertEquals("chapter-A1", imported.chapters.single().id)
+            assertEquals("story-A", imported.chapters.single().storyId)
+            assertTrue(imported.content.characters.all { it.storyId == "story-A" })
+            assertTrue(imported.content.scenes.all { it.chapterId == "chapter-A1" })
+        }
+    }
+
+    @Test
+    fun `metadata and ownership normalization never touch source spans`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(responseFor(modelJson("story-1", "chapter-1", sourceSpan = true)))
+            server.start()
+            val container = containerFor(server, idsFor("story-A", "chapter-A1"))
+
+            container.importStory(
+                StoryImportMode.REMOTE_DEEPSEEK,
+                "林晚放下手机。",
+                storyTitle = "星海回声",
+                chapterTitle = "第一章",
+            )
+
+            val imported = requireNotNull(container.storyContentStore.imported.value)
+            val dialogue = imported.content.beatsByScene.values.flatten()
+                .flatMap { it.events }
+                .filterIsInstance<DialogueEvent>()
+                .single()
+
+            // provenance 保留解析产物原值，不被 metadata / ownership normalization 改写
+            assertEquals("chapter-1", dialogue.sourceSpan?.chapterId)
+            assertEquals("放下手机", dialogue.sourceSpan?.snippet)
+            // 而归属确实被归一化了
+            assertEquals("chapter-A1", imported.content.scenes.single().chapterId)
+        }
+    }
+
+    @Test
+    fun `normalization never rebuilds scene ids or beat map keys`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(responseFor(modelJson("story-1", "chapter-1")))
+            server.start()
+            val container = containerFor(server, idsFor("story-A", "chapter-A1"))
+
+            container.importStory(StoryImportMode.REMOTE_DEEPSEEK, "小说原文")
+
+            val imported = requireNotNull(container.storyContentStore.imported.value)
+            val scene = imported.content.scenes.single()
+
+            assertEquals("chapter-1-s1", scene.id) // Mapper 生成值，不重建
+            assertEquals(setOf("chapter-1-s1"), imported.content.beatsByScene.keys)
+            assertEquals("chapter-A1", scene.chapterId) // 归属已归一
+        }
+    }
+
+    @Test
+    fun `two imports never mix metadata or ownership`() = runTest {
+        MockWebServer().use { server ->
+            server.dispatcher = EchoingImportIdDispatcher()
+            server.start()
+            val container = containerFor(
+                server,
+                FixedImportIdGenerator(
+                    storyIds = listOf("story-A", "story-B"),
+                    chapterIds = listOf("chapter-A1", "chapter-B1"),
+                ),
+            )
+
+            container.importStory(
+                StoryImportMode.REMOTE_DEEPSEEK,
+                "小说 A",
+                storyTitle = "A 的作品",
+                chapterTitle = "A 的章节",
+            )
+            val first = requireNotNull(container.storyContentStore.imported.value)
+
+            container.importStory(
+                StoryImportMode.REMOTE_DEEPSEEK,
+                "小说 B",
+                storyTitle = "B 的作品",
+                chapterTitle = "B 的章节",
+            )
+            val second = requireNotNull(container.storyContentStore.imported.value)
+
+            assertEquals("A 的作品", first.story.title)
+            assertEquals("A 的章节", first.chapters.single().title)
+            assertEquals("story-A", first.story.id)
+
+            assertEquals("B 的作品", second.story.title)
+            assertEquals("B 的章节", second.chapters.single().title)
+            assertEquals("story-B", second.story.id)
+            assertEquals("chapter-B1", second.chapters.single().id)
+            assertTrue(second.content.scenes.all { it.chapterId == "chapter-B1" })
+            assertTrue(second.content.characters.all { it.storyId == "story-B" })
+        }
+    }
+
+    @Test
+    fun `local sample ignores the metadata carried by the request`() = runTest {
+        val container = AppContainer()
+
+        container.importStory(
+            StoryImportMode.LOCAL_SAMPLE,
+            "任意原文",
+            storyTitle = "用户填的作品",
+            author = "用户填的作者",
+            synopsis = "用户填的简介",
+            chapterTitle = "用户填的章节",
+        )
+
+        val imported = requireNotNull(container.storyContentStore.imported.value)
+
+        // fixture 语义：归属与元信息都来自样例自己
+        assertEquals(SampleStoryData.STORY_ID, imported.story.id)
+        assertEquals(
+            listOf(SampleStoryData.CHAPTER_ID_1, SampleStoryData.CHAPTER_ID_2),
+            imported.chapters.map { it.id },
+        )
+        assertEquals("未命名作品", imported.story.title)
+        assertEquals("未命名作者", imported.story.author)
+        assertEquals("", imported.story.synopsis)
+        assertTrue(imported.chapters.all { it.title == "未命名章节" })
+        assertNotEquals("用户填的作品", imported.story.title)
+    }
+
+    @Test
+    fun `the repositories expose the metadata of the current import`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(responseFor(modelJson("story-1", "chapter-1")))
+            server.start()
+            val container = containerFor(server, idsFor("story-A", "chapter-A1"))
+
+            container.importStory(
+                StoryImportMode.REMOTE_DEEPSEEK,
+                "小说原文",
+                storyTitle = "星海回声",
+                author = "示例作者",
+                synopsis = "两个习惯了沉默的人。",
+                chapterTitle = "第一章 启程",
+            )
+
+            val story = container.storyRepository.observeStories().first().single()
+            assertEquals("星海回声", story.title)
+            assertEquals("示例作者", story.author)
+            assertEquals("两个习惯了沉默的人。", story.synopsis)
+
+            val chapters = container.storyRepository.observeChapters("story-A").first()
+            assertEquals(listOf("第一章 启程"), chapters.map { it.title })
+        }
+    }
+
     // --- helpers -------------------------------------------------------------
+
+    private fun idsFor(storyId: String, chapterId: String): ImportIdGenerator =
+        FixedImportIdGenerator(storyIds = listOf(storyId), chapterIds = listOf(chapterId))
 
     private fun containerFor(server: MockWebServer, ids: ImportIdGenerator): AppContainer = AppContainer(
         config = AppConfig(
@@ -389,13 +652,18 @@ class AppContainerTest {
             storyId: String,
             chapterId: String,
             presentationMode: String? = null,
+            sourceSpan: Boolean = false,
         ): String = buildString {
             append("""{"schemaVersion":"1.0","storyId":"$storyId","chapterId":"$chapterId",""")
             append(""""characters":[{"tempId":"c1","name":"林晚"}],""")
             append(""""scenes":[{"tempId":"s1","title":"房间",""")
             presentationMode?.let { append(""""presentationMode":"$it",""") }
             append(""""participants":["c1"],"beats":[{"id":"b1","order":1,"events":[""")
-            append("""{"type":"dialogue","id":"e1","speakerTempId":"c1","text":"放下手机。"}]}]}]}""")
+            append("""{"type":"dialogue","id":"e1","speakerTempId":"c1","text":"放下手机。"""")
+            if (sourceSpan) {
+                append(""","sourceSpan":{"chapterId":"chapter-1","startOffset":2,"endOffset":6,"snippet":"放下手机"}""")
+            }
+            append("""}]}]}]}""")
         }
     }
 }

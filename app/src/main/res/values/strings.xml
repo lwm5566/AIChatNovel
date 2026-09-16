@@ -27,6 +27,13 @@
     <string name="import_mode_local">本地样例（Local Sample）</string>
     <string name="import_mode_remote">DeepSeek</string>
     <string name="import_text_label">小说原文</string>
+    <string name="import_metadata_title">作品与章节信息</string>
+    <string name="import_story_title_label">作品名</string>
+    <string name="import_author_label">作者</string>
+    <string name="import_synopsis_label">作品简介</string>
+    <string name="import_chapter_title_label">章节名</string>
+    <string name="import_metadata_hint">留空时使用占位值（未命名作品 / 未命名作者 / 未命名章节）。</string>
+    <string name="import_metadata_local_hint">当前是本地样例模式：内置样例使用自身的归属与元信息，这里填写的内容不会生效。</string>
     <string name="import_action_submit">开始解析</string>
     <string name="import_action_fill_sample">填充示例原文</string>
     <string name="import_action_open_explorer">查看解析结果</string>

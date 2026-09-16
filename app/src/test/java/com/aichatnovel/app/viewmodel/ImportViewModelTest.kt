@@ -48,6 +48,10 @@ class ImportViewModelTest {
         assertEquals(ImportStatus.Idle, viewModel.uiState.value.status)
         assertEquals(StoryImportMode.LOCAL_SAMPLE, viewModel.uiState.value.mode)
         assertEquals("", viewModel.uiState.value.novelText)
+        assertEquals("", viewModel.uiState.value.storyTitle)
+        assertEquals("", viewModel.uiState.value.author)
+        assertEquals("", viewModel.uiState.value.synopsis)
+        assertEquals("", viewModel.uiState.value.chapterTitle)
     }
 
     @Test
@@ -265,8 +269,66 @@ class ImportViewModelTest {
         assertTrue(status.errors.single().contains("sourceSpan 区间越界"))
     }
 
+    @Test
+    fun `the metadata typed by the user is passed to the importer`() = runTest(dispatcher) {
+        var received: List<String?> = emptyList()
+        val viewModel = viewModelWithMetadata { _, text, storyTitle, author, synopsis, chapterTitle ->
+            received = listOf(text, storyTitle, author, synopsis, chapterTitle)
+            success()
+        }
+
+        viewModel.useSampleText()
+        viewModel.onStoryTitleChange("星海回声")
+        viewModel.onAuthorChange("示例作者")
+        viewModel.onSynopsisChange("两个习惯了沉默的人。")
+        viewModel.onChapterTitleChange("第一章 启程")
+        viewModel.import()
+
+        assertEquals(
+            listOf("黄昏的样例原文", "星海回声", "示例作者", "两个习惯了沉默的人。", "第一章 启程"),
+            received,
+        )
+    }
+
+    @Test
+    fun `editing the metadata while importing keeps the importing state`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<StoryImportResult>()
+        val viewModel = viewModelWithMetadata { _, _, _, _, _, _ -> gate.await() }
+
+        viewModel.import()
+        assertEquals(ImportStatus.Importing, viewModel.uiState.value.status)
+
+        viewModel.onStoryTitleChange("星海回声")
+        viewModel.onAuthorChange("示例作者")
+        viewModel.onSynopsisChange("简介")
+        viewModel.onChapterTitleChange("第一章")
+
+        // 导入进行中仍可编辑，但不得解除 Importing（Phase 5A 的 M1 修复不被破坏）
+        assertEquals(ImportStatus.Importing, viewModel.uiState.value.status)
+        assertEquals("星海回声", viewModel.uiState.value.storyTitle)
+        assertEquals("示例作者", viewModel.uiState.value.author)
+        assertEquals("简介", viewModel.uiState.value.synopsis)
+        assertEquals("第一章", viewModel.uiState.value.chapterTitle)
+
+        gate.complete(success())
+        assertTrue(viewModel.uiState.value.status is ImportStatus.Success)
+    }
+
+    /** 既有用例只关心「模式 + 原文」，元信息一律留空。 */
     private fun viewModel(
         importStory: suspend (StoryImportMode, String) -> StoryImportResult,
+    ): ImportViewModel = viewModelWithMetadata { mode, text, _, _, _, _ -> importStory(mode, text) }
+
+    /** 需要断言元信息透传时使用完整签名。 */
+    private fun viewModelWithMetadata(
+        importStory: suspend (
+            StoryImportMode,
+            String,
+            String?,
+            String?,
+            String?,
+            String?,
+        ) -> StoryImportResult,
     ): ImportViewModel = ImportViewModel(
         defaultMode = StoryImportMode.LOCAL_SAMPLE,
         sampleText = "黄昏的样例原文",

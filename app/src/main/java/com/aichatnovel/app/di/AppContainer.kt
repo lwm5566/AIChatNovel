@@ -67,14 +67,27 @@ class AppContainer(
      * 执行一次导入。
      *
      * 每次导入都取一对**全新**的 storyId / chapterId，避免两次导入落进同一个作品 / 章节。
+     * [storyTitle] / [author] / [synopsis] / [chapterTitle] 是用户显式提供的作品与章节元信息，
+     * 只决定快照里的展示字段，**不参与**归属 ID 的生成；留空（trim 后为空）时回退到占位值。
      * 成功 / 部分成功时，把「作品 + 章节 + 内容」作为同一份快照一次性写入 [storyContentStore]；
      * 失败不写入，调用方必须能看到失败原因。
      */
-    suspend fun importStory(mode: StoryImportMode, novelText: String): StoryImportResult {
+    suspend fun importStory(
+        mode: StoryImportMode,
+        novelText: String,
+        storyTitle: String? = null,
+        author: String? = null,
+        synopsis: String? = null,
+        chapterTitle: String? = null,
+    ): StoryImportResult {
         val request = StoryImportRequest(
             chapterId = importIdGenerator.newChapterId(),
             storyId = importIdGenerator.newStoryId(),
             novelText = novelText,
+            storyTitle = storyTitle,
+            author = author,
+            synopsis = synopsis,
+            chapterTitle = chapterTitle,
         )
 
         val result = importRepositoryFor(mode).importStory(request)
@@ -105,38 +118,54 @@ class AppContainer(
  * 不重建 `Scene.id`、不动 `beatsByScene` 的 key，也不改 `SourceSpan.chapterId`（那是原文溯源信息，
  * 不属于本次 ownership normalization）。
  *
- * ⚠️ title / author 目前是**明确的占位值**，不是小说的真实 metadata：当前 AI 输出契约
- * （`ParseResponseDto`）里没有这些字段，本阶段**不编造**。占位 metadata 将在 Phase 5B-2
- * 由用户显式提供的信息替换。
+ * **元信息（metadata）与归属（ownership）严格分离**：metadata（`storyTitle` / `author` / `synopsis` /
+ * `chapterTitle`）来自用户导入时的显式输入，只决定展示字段，**不参与** id 的生成、选择、查找或合并：
+ * - Remote：使用用户输入；未填写（trim 后为空）时回退到占位值（`未命名作品` / `未命名作者` /
+ *   `未命名章节`，synopsis 为空串）。**从不**把空白字符串写进 Domain。
+ * - 本地样例：fixture 语义，**忽略** request 携带的 metadata，继续使用占位值。
  */
 private fun StoryContent.toImportedStory(
     mode: StoryImportMode,
     request: StoryImportRequest,
-): ImportedStory {
-    val storyId: String
-    val chapters: List<Chapter>
-    val normalized: StoryContent
+): ImportedStory = when (mode) {
+    StoryImportMode.REMOTE_DEEPSEEK -> {
+        val storyId = request.storyId.orEmpty()
+        val chapterId = request.chapterId
 
-    when (mode) {
-        StoryImportMode.REMOTE_DEEPSEEK -> {
-            storyId = request.storyId.orEmpty()
+        ImportedStory(
+            story = Story(
+                id = storyId,
+                title = request.storyTitle.orPlaceholder(PLACEHOLDER_STORY_TITLE),
+                author = request.author.orPlaceholder(PLACEHOLDER_STORY_AUTHOR),
+                synopsis = request.synopsis.orEmpty().trim(),
+            ),
             chapters = listOf(
                 Chapter(
-                    id = request.chapterId,
+                    id = chapterId,
                     storyId = storyId,
                     index = 1,
-                    title = PLACEHOLDER_CHAPTER_TITLE,
+                    title = request.chapterTitle.orPlaceholder(PLACEHOLDER_CHAPTER_TITLE),
                 ),
-            )
-            normalized = copy(
+            ),
+            content = copy(
                 characters = characters.map { it.copy(storyId = storyId) },
-                scenes = scenes.map { it.copy(chapterId = request.chapterId) },
-            )
-        }
+                scenes = scenes.map { it.copy(chapterId = chapterId) },
+            ),
+        )
+    }
 
-        StoryImportMode.LOCAL_SAMPLE -> {
-            storyId = characters.map { it.storyId }.firstOrNull { it.isNotBlank() }
-                ?: request.storyId.orEmpty()
+    StoryImportMode.LOCAL_SAMPLE -> {
+        // 本地样例是 fixture：**忽略 request 携带的元信息**，继续使用自身声明的归属与占位元信息。
+        val storyId = characters.map { it.storyId }.firstOrNull { it.isNotBlank() }
+            ?: request.storyId.orEmpty()
+
+        ImportedStory(
+            story = Story(
+                id = storyId,
+                title = PLACEHOLDER_STORY_TITLE,
+                author = PLACEHOLDER_STORY_AUTHOR,
+                synopsis = "",
+            ),
             chapters = scenes.map { it.chapterId }.distinct().mapIndexed { index, chapterId ->
                 Chapter(
                     id = chapterId,
@@ -144,23 +173,15 @@ private fun StoryContent.toImportedStory(
                     index = index + 1,
                     title = PLACEHOLDER_CHAPTER_TITLE,
                 )
-            }
-            // 样例自身的声明就是它的归属，无需再做归一化
-            normalized = this
-        }
+            },
+            content = this,
+        )
     }
-
-    return ImportedStory(
-        story = Story(
-            id = storyId,
-            title = PLACEHOLDER_STORY_TITLE,
-            author = PLACEHOLDER_STORY_AUTHOR,
-            synopsis = "",
-        ),
-        chapters = chapters,
-        content = normalized,
-    )
 }
+
+/** 用户未填写（null / 空白）时回退到明确的占位值；**从不**把空白字符串写进 Domain。 */
+private fun String?.orPlaceholder(placeholder: String): String =
+    this?.trim().orEmpty().ifBlank { placeholder }
 
 private const val PLACEHOLDER_STORY_TITLE = "未命名作品"
 private const val PLACEHOLDER_STORY_AUTHOR = "未命名作者"

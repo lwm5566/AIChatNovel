@@ -178,7 +178,7 @@
   - Local Sample：fixture 忽略请求参数，storyId / chapterIds 取自样例内容自身声明，保留两章、content 不做不必要修改。
   - 模型回显的 id 仅属解析协议，不作 ownership 依据。不重建 `Scene.id`、不动 `beatsByScene` key、不改 `SourceSpan.chapterId`。
   - 归一化只在 `AppContainer` 协调层完成（copy 不可变值对象），**未修改** `domain/` / DTO / Mapper / Remote / Prompt / Schema。
-- **归属权威性**：最终 `ImportedStory` 的归属以**本次导入实际产出的内容**为准（`content` 里的 `storyId` / `chapterId`）——只有产出才真正决定场景与角色挂在哪个作品 / 章节下。本地样例实现忽略请求参数，远程实现由模型回显请求里给出的 id；两种情况下 story / chapters / content 都必然自洽。
+- **归属权威性（Review Gate 最终版）**：归属**由导入方决定** —— Remote 使用 `request.storyId` / `request.chapterId`；Local Sample 使用样例自身声明的归属。模型回显的 id 只属解析协议，**不作** ownership 依据。（此 bullet 曾有一段被 Review Gate 推翻的旧表述，已修正。）
 - **Sample fixture 处理**：`SampleStoryData` 降级为 fixture（仅测试与样例说明使用）；本地样例仍保留自己的 `story-1` / `chapter-1` / `chapter-2`，但这些 id **不再**成为普通导入的默认 id。
 - **placeholder metadata**：`Story.title = "未命名作品"`、`author = "未命名作者"`、`synopsis = ""`、`Chapter.title = "未命名章节"`、`Chapter.index` = 章节出现顺序。**不是小说真实 metadata**，将在 Phase 5B-2 由用户显式提供的信息替换（代码注释与 `CURRENT_PHASE.md` 均已标明）。
 - **Failure / Partial / Importing（未变）**：Success / Partial → 写入快照；Failure → 不写入（首次失败仍无 Story，后续失败保留上一次成功快照）；Importing → 旧快照继续可见。
@@ -189,11 +189,39 @@
   - 新增覆盖：模型返回**错误 storyId / chapterId** 时 ownership 仍为 request 的 authoritative 值；所有 character 归到权威 storyId；所有 scene 归到权威 chapterId 且属于本次导入的 chapters；连续两次 Remote 导入 id 不同且 content 不串；本地样例保留 `story-1` + `chapter-1`/`chapter-2` 两章与正确 index；未导入时 Story/Chapter 为空；Partial 替换快照；Failure 不动快照；**导入进行中旧快照继续可见**（MockWebServer 延迟 + 并发）；Explorer 能把 Story / Chapter / Scene / Beat 正确关联
 - **构建结果**：`assembleDebug` BUILD SUCCESSFUL，无 Kotlin 编译警告
 - **越界检查**：`git status` 仅 7 个文件（6 改 + 1 新增）；Domain / DTO / Validator / Mapper / Remote / PromptBuilder / ParseSchema / UI / Navigation / Gradle **均未改动**
-- **Git**：**未 commit、未 push**，HEAD 仍为 `f30208b`
+- **Git**：已 commit `9d5917752dd7600fe1fc9da6f4008d513f5397af`（父 `f30208b`）；**尚未 push**
 - **遗留**：真实 Story / Chapter metadata（Phase 5B-2）；多次导入只保留当前快照（符合本阶段要求）
+
+---
+
+## Phase 5B-2 — 用户显式提供的作品 / 章节元信息
+
+- **背景**：Phase 5B-1 把 Story / Chapter 的归属做对了，但它们的**内容**仍是硬编码占位值（Remote 路径显示「未命名作品 / 未命名作者 / 未命名章节」），直接暴露在 `NovelScreen` / `StoryExplorerScreen` 上。
+- **最终设计裁决（用户批准）**
+  - **D1** 采用**方案 α：用户显式输入**。禁止 AI 生成 metadata；**不修改** parser / DTO / Prompt / Schema。
+  - **D2** 直接扩展 `StoryImportRequest`（新增 `storyTitle` / `author` / `synopsis` / `chapterTitle`）；**不新建** `di/ImportMetadata`。
+  - **D3** 采用 **α-2**：Local Sample **保留 fixture 语义、继续忽略 request**，不得因本阶段开始读取 request 中的 metadata。
+  - **D4** trim 后为空视为未填写 → 回退到现有占位值（`未命名作品` / `未命名作者` / `""` / `未命名章节`）；**不**根据 `chapter.index` 生成「第 N 章」；**不**把空白字符串写入 Domain。
+  - **D5** 一次支持四项（作品名 / 作者 / 作品简介 / 章节名），作者与简介可为空。
+  - **D6** 明确排除：导入后编辑 metadata、metadata 编辑页、多作品历史、metadata 历史版本、独立作品管理、AI 自动生成 metadata。
+- **改动文件**（严格限定 5 个生产 + 2 个测试）
+  - `repository/StoryImportRequest.kt`：+4 个可空元信息字段
+  - `viewmodel/ImportViewModel.kt`：`ImportUiState` +4 字段与对应事件；导入时随请求下发（编辑元信息同样不解除 `Importing`）
+  - `ui/storyimport/ImportScreen.kt`：新增「作品与章节信息」输入区 + 留空说明 + 本地样例模式提示
+  - `res/values/strings.xml`：新增 7 条文案
+  - `di/AppContainer.kt`：`importStory(...)` 接受元信息；Remote 分支使用用户输入（空则占位），Local 分支**忽略** request 元信息；新增 `String?.orPlaceholder()`
+  - `test/di/AppContainerTest.kt`、`test/viewmodel/ImportViewModelTest.kt`：新增/调整用例
+- **metadata 与 ownership 的分离**：metadata 只决定展示字段，不参与 id 的生成 / 选择 / 查找 / 合并；不触碰 `SourceSpan.chapterId`、`Scene.id`、`beatsByScene` key；Remote 继续以 `request.storyId` / `request.chapterId` 为唯一 authoritative 归属。
+- **测试结果**：`./gradlew test --rerun` → **109 用例，0 失败，0 错误，1 跳过**（跳过 = `DeepSeekLiveIntegrationTest`，无 Key）
+  - 上一轮 97 → 109（+12）：`AppContainerTest` 14→24、`ImportViewModelTest` 14→16
+  - 新增覆盖：Remote 完整 metadata 落库；缺失 / 空白 metadata 回退占位值；metadata trim 且保留特殊字符；metadata 不影响 ownership；metadata 与归属归一**都不碰 SourceSpan**；归一化不重建 `Scene.id` / `beatsByScene` key；两次导入 metadata 与 ownership 不串；**Local Sample 明确忽略 request metadata**；Repository 层暴露当前导入的 metadata；ImportViewModel 元信息透传与「导入中编辑不解除 Importing」
+- **构建结果**：`assembleDebug` BUILD SUCCESSFUL，无 Kotlin 编译警告
+- **越界检查**：`git status` 仅 7 个文件（5 生产 + 2 测试）；Domain / DTO / Validator / Mapper / Remote / PromptBuilder / ParseSchema / StoryContentStore / 三个 InMemory Repository / `ui/explorer` / `ui/novel` / Navigation / Gradle **均未改动**
+- **Git**：**未 commit、未 push**，HEAD 仍为 `9d5917752dd7600fe1fc9da6f4008d513f5397af`（Phase 5B-2 改动尚未提交）
+- **文档修正（D7）**：修正了本文件中被 5B-1 Review Gate 推翻的旧 ownership bullet，以及过时的 Git 状态。
 
 ---
 
 ## 未开始
 
-Phase 5B-2 及以后：**尚未开始，等待项目负责人确认。**
+下一阶段：**尚未开始，等待项目负责人确认。**

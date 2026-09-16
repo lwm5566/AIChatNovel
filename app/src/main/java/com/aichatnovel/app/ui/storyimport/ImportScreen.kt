@@ -48,6 +48,10 @@ fun ImportRoute(
         onModeChange = viewModel::onModeChange,
         onNovelTextChange = viewModel::onNovelTextChange,
         onUseSampleText = viewModel::useSampleText,
+        onStoryTitleChange = viewModel::onStoryTitleChange,
+        onAuthorChange = viewModel::onAuthorChange,
+        onSynopsisChange = viewModel::onSynopsisChange,
+        onChapterTitleChange = viewModel::onChapterTitleChange,
         onImport = viewModel::import,
         onOpenExplorer = onOpenExplorer,
     )
@@ -61,6 +65,10 @@ fun ImportScreen(
     onModeChange: (StoryImportMode) -> Unit,
     onNovelTextChange: (String) -> Unit,
     onUseSampleText: () -> Unit,
+    onStoryTitleChange: (String) -> Unit,
+    onAuthorChange: (String) -> Unit,
+    onSynopsisChange: (String) -> Unit,
+    onChapterTitleChange: (String) -> Unit,
     onImport: () -> Unit,
     onOpenExplorer: () -> Unit,
 ) {
@@ -94,6 +102,14 @@ fun ImportScreen(
                 minLines = 6,
             )
 
+            MetadataSection(
+                uiState = uiState,
+                onStoryTitleChange = onStoryTitleChange,
+                onAuthorChange = onAuthorChange,
+                onSynopsisChange = onSynopsisChange,
+                onChapterTitleChange = onChapterTitleChange,
+            )
+
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -111,6 +127,73 @@ fun ImportScreen(
             }
 
             ImportStatusView(status = uiState.status, onOpenExplorer = onOpenExplorer)
+        }
+    }
+}
+
+@Composable
+private fun MetadataSection(
+    uiState: ImportUiState,
+    onStoryTitleChange: (String) -> Unit,
+    onAuthorChange: (String) -> Unit,
+    onSynopsisChange: (String) -> Unit,
+    onChapterTitleChange: (String) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.import_metadata_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+
+            OutlinedTextField(
+                value = uiState.storyTitle,
+                onValueChange = onStoryTitleChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.import_story_title_label)) },
+                singleLine = true,
+            )
+
+            OutlinedTextField(
+                value = uiState.author,
+                onValueChange = onAuthorChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.import_author_label)) },
+                singleLine = true,
+            )
+
+            OutlinedTextField(
+                value = uiState.synopsis,
+                onValueChange = onSynopsisChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.import_synopsis_label)) },
+                minLines = 2,
+            )
+
+            OutlinedTextField(
+                value = uiState.chapterTitle,
+                onValueChange = onChapterTitleChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.import_chapter_title_label)) },
+                singleLine = true,
+            )
+
+            Text(
+                text = stringResource(R.string.import_metadata_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (uiState.mode == StoryImportMode.LOCAL_SAMPLE) {
+                Text(
+                    text = stringResource(R.string.import_metadata_local_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
