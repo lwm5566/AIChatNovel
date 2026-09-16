@@ -50,7 +50,7 @@ class AppContainerTest {
         val result = container.importStory()
         assertTrue("期望本地样例导入成功，实际：$result", result is StoryImportResult.Success)
 
-        val stored = container.storyContentStore.content.value
+        val stored = container.storyContentStore.content.first()
         assertTrue(stored.scenes.isNotEmpty())
 
         val scenes = container.storyRepository.observeScenes(SampleStoryData.CHAPTER_ID_1).first()
@@ -123,7 +123,7 @@ class AppContainerTest {
             "每个角色都必须属于本次导入的作品",
             imported.content.characters.all { it.storyId == imported.story.id },
         )
-        assertEquals(imported.content, container.storyContentStore.content.value)
+        assertEquals(imported.content, container.storyContentStore.content.first())
     }
 
     @Test
@@ -137,7 +137,7 @@ class AppContainerTest {
 
         assertTrue("期望导入成功，实际：$result", result is StoryImportResult.Success)
 
-        val stored = container.storyContentStore.content.value
+        val stored = container.storyContentStore.content.first()
         assertEquals(2, stored.scenes.size)
         assertEquals(listOf("char-林晚", "char-陆沉"), stored.characters.map { it.id }.sorted())
     }
@@ -249,7 +249,7 @@ class AppContainerTest {
 
             // 导入尚未完成：旧快照必须继续可见，不能被提前清空
             assertEquals(before, container.storyContentStore.imported.value)
-            assertEquals(before.content, container.storyContentStore.content.value)
+            assertEquals(before.content, container.storyContentStore.content.first())
 
             job.join()
 
@@ -297,7 +297,7 @@ class AppContainerTest {
 
         assertEquals(StoryImportFailure.MISSING_API_KEY, (result as StoryImportResult.Failure).reason)
         assertEquals(before, container.storyContentStore.imported.value)
-        assertEquals(before.content, container.storyContentStore.content.value)
+        assertEquals(before.content, container.storyContentStore.content.first())
     }
 
     @Test
@@ -329,7 +329,7 @@ class AppContainerTest {
         val result = container.importStory()
 
         assertEquals(StoryImportFailure.MISSING_API_KEY, (result as StoryImportResult.Failure).reason)
-        assertTrue(container.storyContentStore.content.value.scenes.isEmpty())
+        assertTrue(container.storyContentStore.content.first().scenes.isEmpty())
     }
 
     // --- Phase 5B-2: user-provided metadata ---------------------------------

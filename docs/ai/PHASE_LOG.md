@@ -235,6 +235,42 @@
 
 ---
 
+## Phase 5B-3 — 导入后数据链路与架构稳固
+
+- **背景**：进入后续剧情加工阶段之前，先复核「一次导入 → 当前 Story 快照 → Story / Chapter / Scene / Beat / PerformanceEvent」这条链路是否足够稳定、职责是否清晰、数据能否安全继续流转。本阶段**不增加业务功能**。
+- **复核范围**：`ImportScreen → ImportViewModel → StoryImportRequest → AppContainer → Remote / Local → DTO → Validator → Mapper → Domain → StoryContentStore → Repository → Story Explorer / Novel UI`
+- **复核结论（逐项）**
+  - **ID / ownership**：Story → Chapter → Scene → Beat → PerformanceEvent 归属连通，无断裂；Phase 5B-1 的 ownership 规则**未被绕过** —— Remote 仍以 `request.storyId` / `request.chapterId` 为唯一 authoritative，模型回显的 id 不作 ownership 依据；本地样例保持 fixture 语义。
+  - **metadata**：四个字段仍只是作品 / 章节展示元数据，不参与 ownership、不改变 ID / lookup / parser validation / mapper ownership，也未进入 AI 解析协议（`PromptBuilder` 只接收 `chapterId` / `storyId` / `novelText`）。
+  - **DTO → Validator → Mapper → Domain**：仍只有 `StoryParsePipeline` 一条路径（Remote 与 Local 都走它），无 AI 原始字段直入 Domain；本阶段未放宽任何校验。
+- **实际修改：`StoryContentStore` 改为单一真源**
+  - **问题**：`replace()` 顺序写两个 `MutableStateFlow`（先 `importedState` 再 `contentState`），存在「快照已换新、内容仍是上一次」的中间窗口；而 `observeStories` / `observeChapters` 读 `imported`、`observeScenes` / `observeBeats` / `observeCharacters` 读 `content`，`StoryExplorerViewModel` 会把两者组合起来，窗口内可能拿到跨快照的组合。`AIChatNovelApplication` 在 `Dispatchers.Default` 上触发预载导入，replace 与 UI 收集真正并发。
+  - **修复**：只保留 `importedState` 一个发布源，`content` 改为其派生视图 `importedState.map { it?.content ?: EMPTY_CONTENT }`；「快照与内容同源」由结构保证，不再依赖调用顺序。
+  - **对外行为不变**：3 个 InMemory Repository 均以 `store.content.map { … }` 使用，**零改动**；未导入时仍返回空 `StoryContent()`。
+- **判断为暂不修改：`repository/StoryImportResult` → `data.parser.validation.ValidationResult`**
+  - `ValidationResult` 是纯数据，不引用 `ParseValidator` / `ApiClient` / Prompt 等任何解析实现 —— 不存在实现耦合，`repository` 契约未泄漏解析实现。
+  - `ValidationCode` 的词汇表（`UNPARSEABLE_RESPONSE` / `UNSUPPORTED_SCHEMA_VERSION` / `DUPLICATE_*_TEMP_ID` / `SNIPPET_MISMATCH` / `MISSING_PRESENTATION_EVIDENCE` …）本质是**解析契约**概念，归属 `data.parser.validation` 是正确的，搬进 `repository` 反而错位。
+  - 真正的解耦应由 `repository` 定义中性的「导入问题」再由 data 层映射，属**设计变更**（新契约 + 映射层），应由真实需求（第二个解析来源 / 第二个消费者）驱动，不做预见性设计。
+- **改动文件**
+  - `data/repository/StoryContentStore.kt`：删掉第二条发布通道，`content` 改为派生 `Flow`
+  - `test/di/AppContainerTest.kt`：`content` 由 `StateFlow` 变为派生 `Flow` 后的取值适配（`.value` → `.first()`），断言未改
+  - `test/data/repository/StoryContentStoreTest.kt`（新增）：同源不变量的回归测试
+- **测试结果**：`./gradlew test --rerun` → **113 用例，0 失败，0 错误，1 跳过**（跳过 = `DeepSeekLiveIntegrationTest`，无有效 API Key）
+  - 上一轮 109 → 113（+4，均新增于 `StoryContentStoreTest`）
+  - 新增覆盖：首次导入前 `imported` 为 null 且 `content` 为空 `StoryContent()`；构造时传入初始快照的两个视图一致；`replace` 后同一时刻一致；**「观察到 `imported` 已换新时 `content` 必须已是同一快照」**（已实测：临时改回双通道实现该用例即失败）
+  - 原有 109 个用例一个未删、断言未放宽
+- **构建结果**：`assembleDebug` BUILD SUCCESSFUL，无 Kotlin 编译警告
+- **越界检查**：未改动 Domain / DTO / Validator / Mapper / parser / remote client / PromptBuilder / `ParseSchema` / `AppContainer` / 三个 InMemory Repository / ViewModel / UI / Navigation / Gradle / Manifest
+- **文档修正**：`CURRENT_PHASE.md` 更新为 Phase 5B-3 现状（并保留 Phase 5B-2 起生效的 metadata 硬规则）；`PHASE_LOG.md` 追加本条。历史阶段的事实描述未改动。
+
+### Phase 5B-3 记录
+
+- **commit**：本阶段改动（代码 + 测试 + 文档）随本阶段提交进入本地 `master`
+- **Git**：`origin/master` 仍为 `b8b9377`；本地领先 1 个 commit，**未 push**
+- **状态**：实现完成，**等待 Review Gate**
+
+---
+
 ## 未开始
 
 下一阶段：**尚未开始，等待项目负责人确认。**
