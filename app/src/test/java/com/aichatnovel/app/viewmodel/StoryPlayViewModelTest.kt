@@ -13,11 +13,13 @@ import com.aichatnovel.app.domain.model.Chapter
 import com.aichatnovel.app.domain.model.Character
 import com.aichatnovel.app.domain.model.Dialogue
 import com.aichatnovel.app.domain.model.DialogueEvent
+import com.aichatnovel.app.domain.model.DurationSource
 import com.aichatnovel.app.domain.model.Environment
 import com.aichatnovel.app.domain.model.EnvironmentEvent
 import com.aichatnovel.app.domain.model.Narration
 import com.aichatnovel.app.domain.model.NarrationEvent
 import com.aichatnovel.app.domain.model.PerformanceEvent
+import com.aichatnovel.app.domain.model.PlaybackStatus
 import com.aichatnovel.app.domain.model.PresentationEvidence
 import com.aichatnovel.app.domain.model.PresentationMode
 import com.aichatnovel.app.domain.model.Scene
@@ -29,8 +31,12 @@ import com.aichatnovel.app.domain.model.Utterance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -187,6 +193,217 @@ class StoryPlayViewModelTest {
         assertEquals(PresentationMode.InstantMessaging, lines.first { it.id == "x2" }.presentationMode)
     }
 
+    // ---------- 播放 ----------
+
+    @Test
+    fun `playback starts idle with the timeline duration`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        val state = vm.playbackState.value
+        assertEquals(PlaybackStatus.Idle, state.status)
+        assertEquals(0L, state.positionMillis)
+        assertEquals(3_500L, state.durationMillis)
+        assertNull(state.currentEventId)
+    }
+
+    @Test
+    fun `play starts playing and locates the first event`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.play()
+
+        val state = vm.playbackState.value
+        assertEquals(PlaybackStatus.Playing, state.status)
+        assertEquals(0L, state.positionMillis)
+        assertEquals("pb-1", state.currentBeatId)
+        assertEquals("p1", state.currentEventId)
+    }
+
+    @Test
+    fun `pause keeps the position`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+        vm.play()
+        vm.seekTo(1_000L)
+
+        vm.pause()
+
+        val state = vm.playbackState.value
+        assertEquals(PlaybackStatus.Paused, state.status)
+        assertEquals(1_000L, state.positionMillis)
+    }
+
+    @Test
+    fun `resume continues from where it paused`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+        vm.play()
+        vm.seekTo(1_000L)
+        vm.pause()
+
+        vm.play()
+
+        val state = vm.playbackState.value
+        assertEquals(PlaybackStatus.Playing, state.status)
+        assertEquals(1_000L, state.positionMillis)
+    }
+
+    @Test
+    fun `reset returns to the initial position and clears the cursor`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+        vm.play()
+        vm.seekTo(2_000L)
+
+        vm.reset()
+
+        val state = vm.playbackState.value
+        assertEquals(PlaybackStatus.Idle, state.status)
+        assertEquals(0L, state.positionMillis)
+        assertEquals(3_500L, state.durationMillis)
+        assertNull(state.currentBeatId)
+        assertNull(state.currentEventId)
+    }
+
+    @Test
+    fun `seek relocates the current event immediately`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.seekTo(500L)
+        assertEquals("p1", vm.playbackState.value.currentEventId)
+
+        vm.seekTo(2_500L)
+        assertEquals("p2", vm.playbackState.value.currentEventId)
+
+        vm.seekTo(3_200L)
+        assertEquals("pb-2", vm.playbackState.value.currentBeatId)
+        assertEquals("p4", vm.playbackState.value.currentEventId)
+    }
+
+    @Test
+    fun `seek is clamped to the timeline range`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.seekTo(-100L)
+        assertEquals(0L, vm.playbackState.value.positionMillis)
+
+        vm.seekTo(99_000L)
+        assertEquals(3_500L, vm.playbackState.value.positionMillis)
+    }
+
+    @Test
+    fun `a gap between events has no current event`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.seekTo(1_500L)
+
+        val state = vm.playbackState.value
+        assertNull(state.currentBeatId)
+        assertNull(state.currentEventId)
+    }
+
+    @Test
+    fun `concurrent events at the same offset resolve to the last one`() = runTest(dispatcher) {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.seekTo(3_200L)
+
+        assertEquals("p4", vm.playbackState.value.currentEventId)
+    }
+
+    @Test
+    fun `an empty story has nothing to play`() = runTest(dispatcher) {
+        val vm = viewModel(sceneId = null, imported = null)
+        advanceUntilIdle()
+
+        vm.play()
+
+        val state = vm.playbackState.value
+        assertEquals(0L, state.durationMillis)
+        assertEquals(PlaybackStatus.Idle, state.status)
+        assertEquals(0L, state.positionMillis)
+        assertNull(state.currentEventId)
+    }
+
+    @Test
+    fun `playing advances the position over time`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.play()
+        advanceTimeBy(1_500L)
+        runCurrent()
+
+        val state = vm.playbackState.value
+        assertEquals(PlaybackStatus.Playing, state.status)
+        assertEquals(1_500L, state.positionMillis)
+        // 此时正好落在空档里，游标应当为空
+        assertNull(state.currentEventId)
+    }
+
+    @Test
+    fun `reaching the end completes playback and stops advancing`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.play()
+        advanceUntilIdle()
+
+        assertEquals(PlaybackStatus.Completed, vm.playbackState.value.status)
+        assertEquals(3_500L, vm.playbackState.value.positionMillis)
+
+        advanceTimeBy(2_000L)
+        runCurrent()
+
+        assertEquals(PlaybackStatus.Completed, vm.playbackState.value.status)
+        assertEquals(3_500L, vm.playbackState.value.positionMillis)
+    }
+
+    @Test
+    fun `pausing stops the time advancement`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.play()
+        advanceTimeBy(500L)
+        runCurrent()
+        val beforePause = vm.playbackState.value.positionMillis
+
+        vm.pause()
+        advanceTimeBy(2_000L)
+        runCurrent()
+
+        assertEquals(PlaybackStatus.Paused, vm.playbackState.value.status)
+        assertEquals(beforePause, vm.playbackState.value.positionMillis)
+    }
+
+    @Test
+    fun `resetting stops the time advancement`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.play()
+        advanceTimeBy(500L)
+        runCurrent()
+
+        vm.reset()
+        advanceTimeBy(2_000L)
+        runCurrent()
+
+        assertEquals(PlaybackStatus.Idle, vm.playbackState.value.status)
+        assertEquals(0L, vm.playbackState.value.positionMillis)
+    }
+
     private suspend fun linesOf(sceneId: String, beatId: String): List<PerformanceLine> =
         viewModel(sceneId = sceneId).uiState.first { !it.isLoading }
             .beats.first { it.id == beatId }
@@ -282,6 +499,60 @@ class StoryPlayViewModelTest {
         ),
     )
 
+    private fun playbackViewModel(): StoryPlayViewModel =
+        viewModel(sceneId = PLAYBACK_SCENE_ID, imported = playbackFixture())
+
+    /**
+     * 一条可预测的时间轴：
+     * - beat pb-1：p1(0..1000)、p2(2000..3000) → 1s 空档，节拍末端 3000；
+     * - beat pb-2：p3/p4 从 3000 起，同起点并发 → 节拍末端 3500。
+     */
+    private fun playbackFixture(): ImportedStory = fixture(
+        scenes = listOf(
+            Scene(
+                id = PLAYBACK_SCENE_ID,
+                chapterId = "chapter-1",
+                index = 3,
+                title = "天台",
+                presentationMode = PresentationMode.LiveScene,
+            ),
+        ),
+        beatsByScene = mapOf(
+            PLAYBACK_SCENE_ID to listOf(
+                Beat(
+                    id = "pb-1",
+                    order = 1,
+                    events = listOf(
+                        timedNarration("p1", startOffsetMillis = 0L, durationMillis = 1_000L),
+                        timedNarration("p2", startOffsetMillis = 2_000L, durationMillis = 1_000L),
+                    ),
+                ),
+                Beat(
+                    id = "pb-2",
+                    order = 2,
+                    events = listOf(
+                        timedNarration("p3", startOffsetMillis = 0L, durationMillis = 500L),
+                        timedNarration("p4", startOffsetMillis = 0L, durationMillis = 500L),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    private fun timedNarration(
+        id: String,
+        startOffsetMillis: Long,
+        durationMillis: Long,
+    ): PerformanceEvent = NarrationEvent(
+        id = id,
+        timing = Timing(
+            startOffsetMillis = startOffsetMillis,
+            durationMillis = durationMillis,
+            durationSource = DurationSource.Manual,
+        ),
+        narration = Narration(text = id),
+    )
+
     private fun dialogueEvent(): PerformanceEvent = DialogueEvent(
         id = "d1",
         timing = Timing(startOffsetMillis = 0L),
@@ -299,4 +570,8 @@ class StoryPlayViewModelTest {
         narration = Narration(text = id),
         presentationOverride = presentationOverride,
     )
+
+    private companion object {
+        const val PLAYBACK_SCENE_ID = "scene-play"
+    }
 }

@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.aichatnovel.app.AIChatNovelApplication
+import com.aichatnovel.app.domain.mapping.buildExecutableTimeline
+import com.aichatnovel.app.domain.mapping.cursorAt
 import com.aichatnovel.app.domain.mapping.effectivePresentationMode
 import com.aichatnovel.app.domain.mapping.effectiveSpeakerId
 import com.aichatnovel.app.domain.mapping.effectiveVoiceProfile
@@ -15,8 +17,11 @@ import com.aichatnovel.app.domain.model.Beat
 import com.aichatnovel.app.domain.model.CameraEvent
 import com.aichatnovel.app.domain.model.DialogueEvent
 import com.aichatnovel.app.domain.model.EnvironmentEvent
+import com.aichatnovel.app.domain.model.ExecutableTimeline
 import com.aichatnovel.app.domain.model.NarrationEvent
 import com.aichatnovel.app.domain.model.PerformanceEvent
+import com.aichatnovel.app.domain.model.PlaybackState
+import com.aichatnovel.app.domain.model.PlaybackStatus
 import com.aichatnovel.app.domain.model.PresentationMode
 import com.aichatnovel.app.domain.model.Scene
 import com.aichatnovel.app.domain.model.SoundEvent
@@ -26,14 +31,22 @@ import com.aichatnovel.app.repository.CharacterRepository
 import com.aichatnovel.app.repository.PerformanceRepository
 import com.aichatnovel.app.repository.StoryRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * 剧情演出中的一行内容，供 UI 直接渲染。
@@ -95,6 +108,33 @@ class StoryPlayViewModel(
             if (resolvedSceneId == null) flowOf(emptyList()) else performanceRepository.observeBeats(resolvedSceneId)
         }
 
+    /** 当前场景的可执行时间轴；场景或节拍变化时重建。 */
+    private val timelineFlow: Flow<ExecutableTimeline> = combine(scene, beats) { currentScene, beatList ->
+        if (currentScene == null) ExecutableTimeline() else buildExecutableTimeline(currentScene, beatList)
+    }
+
+    private val _timeline = MutableStateFlow(ExecutableTimeline())
+
+    /** 当前场景的时间轴，供 UI 读取总时长与定位规则。 */
+    val timeline: StateFlow<ExecutableTimeline> = _timeline.asStateFlow()
+
+    private val _playbackState = MutableStateFlow(PlaybackState())
+
+    /** 播放状态。UI 只渲染它，并通过 [play] / [pause] / [reset] / [seekTo] 发出意图。 */
+    val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+
+    private var tickJob: Job? = null
+
+    init {
+        timelineFlow
+            .onEach { newTimeline ->
+                stopTicking()
+                _timeline.value = newTimeline
+                _playbackState.value = PlaybackState(durationMillis = newTimeline.totalDurationMillis)
+            }
+            .launchIn(viewModelScope)
+    }
+
     val uiState: StateFlow<StoryPlayUiState> = combine(
         scene,
         beats,
@@ -114,8 +154,65 @@ class StoryPlayViewModel(
         initialValue = StoryPlayUiState(),
     )
 
+    /** 开始或继续播放。没有可播放内容时不产生推进。 */
+    fun play() {
+        if (_playbackState.value.status == PlaybackStatus.Playing) return
+        val next = _playbackState.value.play()
+        _playbackState.value = if (next.status == PlaybackStatus.Playing) {
+            next.withCursor(_timeline.value.cursorAt(next.positionMillis))
+        } else {
+            next
+        }
+        if (next.status == PlaybackStatus.Playing) startTicking() else stopTicking()
+    }
+
+    /** 暂停播放，位置保留。 */
+    fun pause() {
+        _playbackState.value = _playbackState.value.pause()
+        stopTicking()
+    }
+
+    /** 重置到初始位置。 */
+    fun reset() {
+        stopTicking()
+        _playbackState.value = _playbackState.value.reset()
+    }
+
+    /** 跳转到指定位置，并立刻重新定位当前事件。 */
+    fun seekTo(positionMillis: Long) {
+        val next = _playbackState.value.seekTo(positionMillis)
+        _playbackState.value = next.withCursor(_timeline.value.cursorAt(next.positionMillis))
+    }
+
+    override fun onCleared() {
+        stopTicking()
+        super.onCleared()
+    }
+
+    private fun startTicking() {
+        stopTicking()
+        tickJob = viewModelScope.launch {
+            while (isActive) {
+                delay(TICK_INTERVAL_MILLIS)
+                val current = _playbackState.value
+                if (current.status != PlaybackStatus.Playing) break
+                val advanced = current.advanceBy(TICK_INTERVAL_MILLIS)
+                _playbackState.value = advanced.withCursor(_timeline.value.cursorAt(advanced.positionMillis))
+                if (advanced.status != PlaybackStatus.Playing) break
+            }
+        }
+    }
+
+    private fun stopTicking() {
+        tickJob?.cancel()
+        tickJob = null
+    }
+
     companion object {
         private const val STOP_TIMEOUT_MILLIS = 5_000L
+
+        /** 本地模拟播放的时间片长度；接入真实播放器后由播放器驱动推进。 */
+        private const val TICK_INTERVAL_MILLIS = 100L
 
         fun factory(sceneId: String?): ViewModelProvider.Factory = viewModelFactory {
             initializer {

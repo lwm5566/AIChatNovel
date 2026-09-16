@@ -319,6 +319,63 @@
 
 ---
 
+## Phase 6B — 可执行时间轴与 StoryPlay 播放基础
+
+- **背景**：Phase 6A 之后，StoryPlay 仍只能**静态展示**演出行：无法按时间位置定位 Beat / Event，也没有任何播放状态。本阶段把链路推进到 `Beat/Event → Timeline（可执行）→ PlaybackState → StoryPlay`。
+- **本阶段不是 TTS 阶段、不是真实音频播放阶段**；时长保留「估算 / 来源」概念，为 `TTS → AudioAsset → actual duration → Timeline duration backfill` 留口。
+
+### 新增（生产）
+
+| 文件 | 作用 |
+|---|---|
+| `domain/model/ExecutableTimeline.kt` | `ExecutableTimeline`（`totalDurationMillis` / `durationSource` / `positions`）与 `EventPosition`（`beatId` / `eventId` / `startOffsetMillis` / `durationMillis` / `durationSource` + 派生 `endOffsetMillis`） |
+| `domain/model/PlaybackState.kt` | `PlaybackStatus`（`Idle` / `Playing` / `Paused` / `Completed`）、`PlaybackCursor`、`PlaybackState` 与全部纯函数转换（`play` / `pause` / `reset` / `advanceBy` / `seekTo` / `withCursor`）及派生值 `progress` / `hasPlayableContent` |
+| `domain/mapping/TimelineMapping.kt` | `PLAYBACK_ESTIMATED_EVENT_DURATION_MILLIS`（1000ms）、`buildExecutableTimeline(scene, beats)`、`ExecutableTimeline.cursorAt(positionMillis)` |
+
+### 修改（生产）
+
+| 文件 | 改动 |
+|---|---|
+| `viewmodel/StoryPlayViewModel.kt` | 新增 `timeline: StateFlow<ExecutableTimeline>` 与 `playbackState: StateFlow<PlaybackState>`；新增 `play` / `pause` / `reset` / `seekTo`；新增 100ms 时间片的推进 coroutine（`viewModelScope`）与 `onCleared` 取消；时间轴变化时重置播放状态。原只读链路（scene 三级回退、`BeatUi` / `PerformanceLine` 映射）**未改** |
+| `ui/storyplay/StoryPlayScreen.kt` | Route 订阅 `playbackState`；新增 `PlaybackControls`（状态文字 / 重置 / 播放暂停 / 进度条 / 当前时间与总时长）；节拍标题与演出行卡片高亮当前 Beat / Event。UI 只渲染状态与回调意图 |
+
+### 本阶段建立的时间轴契约
+
+- 节拍按 `order` 升序铺开；上一个节拍的末端就是下一个的起点（`Beat` 无场景级时间字段，起点由前序节拍累加）
+- 事件位置 = 节拍起点 + `Timing.startOffsetMillis`（**负数按 0**）
+- 事件时长为空或为负 → 用 1000ms 估算参与布局，来源一律 `Estimated`（**绝不标 `Audio`**）
+- 总时长 = `max(场景已知总时长, 布局末端)`；空场景 / 空节拍 → 时长 0 的空时间轴
+- 游标：闭区间命中；并发事件取「最近开始」（起点最大、并列取稳定序靠后）；空档期 / 超出范围 / 空时间轴 → 空游标，**不伪造事件**
+
+### 本阶段建立的播放状态契约
+
+- `play()`：无内容保持 `Idle`；已播完不自动重播（需 `reset`）
+- `pause()`：仅 `Playing` → `Paused`，位置保留
+- `reset()`：→ `Idle`、位置 0、清空定位（时长保留）
+- `advanceBy()`：仅 `Playing` 时推进，clamp 到时长，到末端 → `Completed` 且不再前进
+- `seekTo()`：clamp 到 `[0, duration]`；从 `Completed` 跳回中间 → `Paused`
+
+### 验证结果
+
+| 项 | 结果 |
+|---|---|
+| 测试 | `./gradlew test --rerun --no-daemon` → **221 tests / 0 failures / 0 errors / 1 skipped**（Debug 与 Release variant 均 221） |
+| 测试数变化 | 162（Phase 6A）→ **221**（**+59**；未删除任何既有用例、未降低任何断言、未新增 skip） |
+| 新增/追加用例 | `TimelineMappingTest` 23、`PlaybackStateTest` 22、`StoryPlayViewModelTest` 追加 14（原有 16 保留，共 30） |
+| 构建 | `./gradlew assembleDebug --no-daemon` → **BUILD SUCCESSFUL** |
+| Kotlin 警告 | **0** |
+| `git diff --check` | clean |
+| 生产缺陷 | **未发现**（新增测试一次通过，未出现 need-to-stop 的情形） |
+| 越界检查 | 未改动 DTO / Validator / Mapper / Parser / PromptBuilder / `ParseSchema` / `AppContainer` / `StoryContentStore` / 三个 InMemory Repository / navigation / 其他 UI / Gradle / Manifest / `strings.xml`；未引入 TTS / 音频 / 视频 / MP4 / MediaPlayer / ExoPlayer / Media3 / AudioTrack / Track 系统 / 音色绑定 / 资源系统 / Room / DataStore / 登录 / 云端 |
+
+### Phase 6B 记录
+
+- **commit**：本阶段改动（3 个新增生产文件 + 2 个修改生产文件 + 2 个新增测试文件 + 1 个修改测试文件 + 2 份文档）随本阶段提交进入本地 `master`
+- **Git**：`origin/master` 仍为 `39e2061`；本地领先 1 个 commit，**未 push**
+- **状态**：实现完成，**等待 Review Gate**
+
+---
+
 ## 未开始
 
 下一阶段：**尚未开始，等待项目负责人确认。**
