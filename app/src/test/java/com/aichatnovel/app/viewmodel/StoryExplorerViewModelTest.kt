@@ -79,11 +79,20 @@ class StoryExplorerViewModelTest {
         assertEquals("黄昏的教室", scene.title)
         assertEquals(listOf("地点：教室", "时间：黄昏", "天气：晴", "光线：暖光"), scene.settingLines)
         assertEquals(listOf("林晚", "陆沉"), scene.participants)
-        assertEquals("5.0s", scene.totalDurationLabel)
+        assertEquals("5.0s（Estimated）", scene.totalDurationLabel)
 
         val beat = scene.beats.single()
         assertEquals(1, beat.order)
         assertEquals(6, beat.events.size)
+    }
+
+    @Test
+    fun `scene total duration keeps its source so it is not read as a final duration`() = runTest(dispatcher) {
+        val scene = viewModel().uiState.first { !it.isLoading }.chapters.single().scenes.first()
+
+        val label = scene.totalDurationLabel.orEmpty()
+        assertTrue("期望总时长标注来源，实际「$label」", label.contains("Estimated"))
+        assertFalse(label.contains("Audio"))
     }
 
     @Test

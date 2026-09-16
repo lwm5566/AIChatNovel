@@ -37,6 +37,35 @@ class AppContainerTest {
     }
 
     @Test
+    fun `explicit mode import runs the shared pipeline and fills the store`() = runTest {
+        val container = AppContainer()
+
+        val result = container.importStory(
+            StoryImportMode.LOCAL_SAMPLE,
+            "用户粘贴的原文（本地样例模式会忽略它）",
+        )
+
+        assertTrue("期望导入成功，实际：$result", result is StoryImportResult.Success)
+
+        val stored = container.storyContentStore.content.value
+        assertEquals(2, stored.scenes.size)
+        assertEquals(listOf("char-林晚", "char-陆沉"), stored.characters.map { it.id }.sorted())
+    }
+
+    @Test
+    fun `failed import leaves previously imported content untouched`() = runTest {
+        val container = AppContainer()
+        container.importStory(StoryImportMode.LOCAL_SAMPLE, "第一次导入")
+        val before = container.storyContentStore.content.value.scenes.map { it.id }
+        assertTrue(before.isNotEmpty())
+
+        val result = container.importStory(StoryImportMode.REMOTE_DEEPSEEK, "第二次导入（无 Key，必定失败）")
+
+        assertEquals(StoryImportFailure.MISSING_API_KEY, (result as StoryImportResult.Failure).reason)
+        assertEquals(before, container.storyContentStore.content.value.scenes.map { it.id })
+    }
+
+    @Test
     fun `remote mode without api key fails without touching the store`() = runTest {
         val container = AppContainer(
             config = AppConfig(

@@ -96,8 +96,11 @@ fun StoryExplorerScreen(
                         item(key = "scene-${scene.id}") { SceneCard(scene) }
 
                         scene.beats.forEach { beat ->
-                            item(key = "beat-${beat.id}") { BeatHeader(beat) }
-                            items(items = beat.events, key = { "event-${it.id}" }) { event ->
+                            item(key = beatUiKey(scene.id, beat.id)) { BeatHeader(beat) }
+                            items(
+                                items = beat.events,
+                                key = { eventUiKey(scene.id, beat.id, it.id) },
+                            ) { event ->
                                 EventCard(event = event, sceneMode = scene.presentationMode)
                             }
                         }
@@ -300,3 +303,13 @@ private fun EventCard(
 
 private fun SourceSpan.toLabel(): String =
     "原文：\u300C$snippet\u300D（$startOffset–$endOffset）"
+
+/**
+ * LazyColumn 的 key 必须在整棵树内唯一，但 Domain 里 Beat / Event 的 id 直接来自模型输出，
+ * 未像 Scene 那样按章节限定——不同场景可能给出相同 id。因此这里把 key 限定到「场景（及节拍）」范围，
+ * 避免 Compose 抛 duplicate key。
+ */
+internal fun beatUiKey(sceneId: String, beatId: String): String = "beat-$sceneId-$beatId"
+
+internal fun eventUiKey(sceneId: String, beatId: String, eventId: String): String =
+    "event-$sceneId-$beatId-$eventId"

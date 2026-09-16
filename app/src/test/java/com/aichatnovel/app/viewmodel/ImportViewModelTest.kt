@@ -156,6 +156,115 @@ class ImportViewModelTest {
         assertEquals("黄昏的样例原文", viewModel.uiState.value.novelText)
     }
 
+    @Test
+    fun `editing the novel text while importing keeps the importing state`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<StoryImportResult>()
+        val viewModel = viewModel { _, _ -> gate.await() }
+
+        viewModel.import()
+        assertEquals(ImportStatus.Importing, viewModel.uiState.value.status)
+
+        viewModel.onNovelTextChange("导入过程中继续编辑的文本")
+
+        assertEquals(ImportStatus.Importing, viewModel.uiState.value.status)
+        assertEquals("导入过程中继续编辑的文本", viewModel.uiState.value.novelText)
+
+        gate.complete(success())
+        assertTrue(viewModel.uiState.value.status is ImportStatus.Success)
+    }
+
+    @Test
+    fun `changing the mode while importing keeps the importing state`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<StoryImportResult>()
+        val viewModel = viewModel { _, _ -> gate.await() }
+
+        viewModel.import()
+        viewModel.onModeChange(StoryImportMode.REMOTE_DEEPSEEK)
+
+        assertEquals(ImportStatus.Importing, viewModel.uiState.value.status)
+        assertEquals(StoryImportMode.REMOTE_DEEPSEEK, viewModel.uiState.value.mode)
+
+        gate.complete(success())
+        assertTrue(viewModel.uiState.value.status is ImportStatus.Success)
+    }
+
+    @Test
+    fun `filling the sample text while importing keeps the importing state`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<StoryImportResult>()
+        val viewModel = viewModel { _, _ -> gate.await() }
+
+        viewModel.import()
+        viewModel.useSampleText()
+
+        assertEquals(ImportStatus.Importing, viewModel.uiState.value.status)
+        assertEquals("黄昏的样例原文", viewModel.uiState.value.novelText)
+
+        gate.complete(success())
+        assertTrue(viewModel.uiState.value.status is ImportStatus.Success)
+    }
+
+    @Test
+    fun `a second import while importing never reaches the repository`() = runTest(dispatcher) {
+        var calls = 0
+        val gate = CompletableDeferred<StoryImportResult>()
+        val viewModel = viewModel { _, _ ->
+            calls++
+            gate.await()
+        }
+
+        viewModel.import()
+        // 导入进行中：改文本、切模式后重复点击，都不得发起第二次导入
+        viewModel.onNovelTextChange("第二次尝试的文本")
+        viewModel.import()
+        viewModel.onModeChange(StoryImportMode.REMOTE_DEEPSEEK)
+        viewModel.import()
+
+        assertEquals(1, calls)
+        assertEquals(ImportStatus.Importing, viewModel.uiState.value.status)
+
+        gate.complete(success())
+        assertTrue(viewModel.uiState.value.status is ImportStatus.Success)
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun `status leaves importing once the import completes`() = runTest(dispatcher) {
+        val viewModel = viewModel { _, _ -> success() }
+
+        viewModel.import()
+
+        assertTrue(viewModel.uiState.value.status is ImportStatus.Success)
+    }
+
+    @Test
+    fun `failure keeps the validation errors so the ui can show why`() = runTest(dispatcher) {
+        val viewModel = viewModel { _, _ ->
+            StoryImportResult.Failure(
+                reason = StoryImportFailure.VALIDATION_ERROR,
+                message = "模型输出不符合契约，未生成领域模型",
+                validation = ValidationResult(
+                    listOf(
+                        ValidationIssue(
+                            code = ValidationCode.INVALID_SOURCE_SPAN_RANGE,
+                            severity = ValidationSeverity.ERROR,
+                            path = "$.scenes[0].beats[0].events[0]",
+                            message = "sourceSpan 区间越界",
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        viewModel.import()
+
+        val status = viewModel.uiState.value.status
+        assertTrue("期望 Failure，实际 $status", status is ImportStatus.Failure)
+        status as ImportStatus.Failure
+        assertEquals(1, status.errors.size)
+        assertTrue(status.errors.single().contains("INVALID_SOURCE_SPAN_RANGE"))
+        assertTrue(status.errors.single().contains("sourceSpan 区间越界"))
+    }
+
     private fun viewModel(
         importStory: suspend (StoryImportMode, String) -> StoryImportResult,
     ): ImportViewModel = ImportViewModel(

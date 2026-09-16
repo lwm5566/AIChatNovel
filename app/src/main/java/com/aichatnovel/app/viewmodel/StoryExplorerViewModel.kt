@@ -166,7 +166,9 @@ private fun Scene.toExplorerScene(beats: List<Beat>, characterList: List<Charact
         evidence = presentationEvidence?.text,
         settingLines = setting.toLines(),
         participants = characters.map { it.characterId }.map { names[it] ?: it },
-        totalDurationLabel = timeline.totalDurationMillis?.let { "${it / 1000.0}s" },
+        totalDurationLabel = timeline.totalDurationMillis?.let { millis ->
+            "${millis / 1000.0}s（${timeline.durationSource?.name ?: "来源未标注"}）"
+        },
         beats = beats.sortedBy { it.order }.map { it.toExplorerBeat(names) },
     )
 }

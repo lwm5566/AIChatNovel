@@ -223,6 +223,17 @@ private fun ImportStatusView(
                 Text(text = "解析失败", style = MaterialTheme.typography.titleMedium)
                 Text(text = "原因：${status.reason.name}", style = MaterialTheme.typography.bodyMedium)
                 Text(text = status.message, style = MaterialTheme.typography.bodySmall)
+
+                if (status.errors.isNotEmpty()) {
+                    Text(
+                        text = "校验错误",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    status.errors.forEach { error ->
+                        Text(text = "· $error", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
         }
     }

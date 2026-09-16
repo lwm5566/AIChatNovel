@@ -138,6 +138,27 @@
 
 ---
 
+## Phase 5A 修复轮（审核整改）
+
+- **背景**：Phase 5A 审核发现 M1 / M3 / m1 / m2，本轮只修这四项；Phase 5A **未宣布 COMPLETE**。
+- **改动文件**（仅授权的 8 个）
+  - `viewmodel/ImportViewModel.kt`（M1 + m2）、`ui/storyimport/ImportScreen.kt`（m2）
+  - `ui/explorer/StoryExplorerScreen.kt`（M3）、`viewmodel/StoryExplorerViewModel.kt`（m1）
+  - `test/viewmodel/ImportViewModelTest.kt`、`test/viewmodel/StoryExplorerViewModelTest.kt`、`test/ui/explorer/StoryExplorerKeysTest.kt`（新增）、`test/di/AppContainerTest.kt`
+- **M1（已修）**：`onNovelTextChange` / `onModeChange` / `useSampleText` 改为 `idleUnlessImporting()` —— `Importing` 期间保持 `Importing`；`import()` 的 `Importing` 置位提到 `launch` 之前，不再依赖 `Main.immediate` 的隐含语义。因此：导入期间重复点击被拦下、不可能并发第二个 `importStory`、不存在旧请求覆盖新请求。**未新增并发框架**，Repository / ViewModel 架构未变。
+- **M3（已修）**：Explorer 的 Beat / Event UI key 限定到场景（及节拍）范围（`beatUiKey` / `eventUiKey`）。仅改 Phase 5A 的 `StoryExplorerScreen`；`StoryPlayScreen`（Phase 2 已验收）**未修改**，也未做全项目 ID 重构。
+- **m1（已修）**：Scene 总时长在 UI 上追加 duration source（`5.0s（Estimated）`），与事件 timing 写法一致，不再把估计时长当作最终 TTS 时长。Domain / Mapper **未改**。
+- **m2（已修）**：`ImportStatus.Failure` 新增 `errors: List<String>`，由 `validation.errors` 映射；ImportScreen 的失败卡片展示「校验错误」摘要（如 `INVALID_SOURCE_SPAN_RANGE@路径：消息`）。**Validator 规则与 ERROR/WARNING 标准未改**。
+- **M2（保留）**：用户导入的原文仍显示 `SampleStoryData` 的静态作品 / 章节元信息 —— 审核确认保留为下一阶段遗留，本轮**未修**。
+- **测试结果**：`./gradlew test --rerun` → **85 用例，0 失败，0 错误，1 跳过**（跳过 = `DeepSeekLiveIntegrationTest`，无 Key）
+  - 上一轮 73 → 85（+12）：ImportViewModelTest 8→14、StoryExplorerViewModelTest 6→7、StoryExplorerKeysTest 0→3（新增）、AppContainerTest 2→4
+  - 新增覆盖：导入期间编辑文本 / 切模式 / 填充示例文本不解除 Importing；导入期间重复点击不产生第二次导入；Failure 保留 validation errors；总时长标注来源；跨 Scene 复用相同 beat/event id 时 UI key 仍唯一；`AppContainer.importStory(mode, novelText)` 真实调用与失败不覆盖已有内容
+- **构建结果**：`assembleDebug` BUILD SUCCESSFUL，无 Kotlin 编译警告
+- **越界检查**：`git status` 仅列出上述 8 个文件；Domain / DTO / Parser / Remote / `StoryPlayScreen` / Navigation / 构建配置 / `AIChatNovelApplication` 均**未改动**
+- **Git**：未 commit、未 push，保持 HEAD = `a4a9348`
+
+---
+
 ## 未开始
 
 Phase 5B 及以后：**尚未开始，等待项目负责人确认。**
