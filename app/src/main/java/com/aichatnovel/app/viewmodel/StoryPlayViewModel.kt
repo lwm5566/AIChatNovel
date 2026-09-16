@@ -75,13 +75,16 @@ data class PerformanceLine(
 /** 一个演出节拍，包含并发/重叠的若干演出行。 */
 data class BeatUi(
     val id: String,
+    val order: Int,
     val label: String,
     val lines: List<PerformanceLine>,
 )
 
 data class StoryPlayUiState(
     val isLoading: Boolean = true,
+    val sceneTitle: String? = null,
     val presentationMode: PresentationMode = PresentationMode.LiveScene,
+    val characterCount: Int = 0,
     val beats: List<BeatUi> = emptyList(),
 )
 
@@ -110,6 +113,8 @@ data class AudioState(
     val status: AudioGenerationStatus = AudioGenerationStatus.Idle,
     val message: String? = null,
     val generatedCount: Int = 0,
+    /** 当前场景是否已经存在**真实**音频。只在音频索引中确实命中事件时为真，绝不由估算推断。 */
+    val hasAudio: Boolean = false,
 )
 
 /**
@@ -155,6 +160,11 @@ class StoryPlayViewModel(
 
     private val configuredProviders: Flow<Set<TtsProviderId>> =
         credentialStore?.observeConfiguredProviders() ?: flowOf(emptySet())
+
+    /** 当前场景是否已有真实音频；只与「音频索引 ∩ 本场景事件」有关。 */
+    private val sceneHasAudio: Flow<Boolean> = combine(beats, audioAssets) { beatList, assets ->
+        beatList.any { beat -> beat.events.any { assets.containsKey(it.id) } }
+    }
 
     private var currentAudioAssets: Map<String, AudioAsset> = emptyMap()
 
@@ -207,6 +217,10 @@ class StoryPlayViewModel(
                 _audioState.update { state -> state.copy(providerConfigured = state.providerId in it) }
             }
             .launchIn(viewModelScope)
+
+        sceneHasAudio
+            .onEach { hasAudio -> _audioState.update { state -> state.copy(hasAudio = hasAudio) } }
+            .launchIn(viewModelScope)
     }
 
     val uiState: StateFlow<StoryPlayUiState> = combine(
@@ -219,7 +233,9 @@ class StoryPlayViewModel(
         val sceneMode = currentScene?.presentationMode ?: PresentationMode.LiveScene
         StoryPlayUiState(
             isLoading = false,
+            sceneTitle = currentScene?.title,
             presentationMode = sceneMode,
+            characterCount = currentScene?.characters?.size ?: 0,
             beats = beatList.map { beat -> beat.toUi(names, profiles, sceneMode) },
         )
     }.stateIn(
@@ -403,6 +419,10 @@ class StoryPlayViewModel(
                     performanceRepository = app.container.performanceRepository,
                     characterRepository = app.container.characterRepository,
                     storyRepository = app.container.storyRepository,
+                    audioAssetRepository = app.container.audioAssetRepository,
+                    credentialStore = app.container.credentialStore,
+                    sceneAudioGenerator = app.container.sceneAudioGenerator,
+                    audioPlayer = app.container.audioPlayer,
                 )
             }
         }
@@ -415,6 +435,7 @@ private fun Beat.toUi(
     sceneMode: PresentationMode,
 ): BeatUi = BeatUi(
     id = id,
+    order = order,
     label = "节拍 $order",
     lines = orderedEvents().map { it.toLine(names, profiles, sceneMode) },
 )

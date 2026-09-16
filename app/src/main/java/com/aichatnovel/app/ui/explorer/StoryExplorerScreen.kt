@@ -74,7 +74,8 @@ fun StoryExplorerScreen(
             uiState.isLoading -> LoadingState(contentModifier)
 
             story == null -> EmptyState(
-                message = "暂无解析结果，请先在小说页导入原文",
+                title = "还没有解析结果",
+                description = "先在首页导入一本小说，这里会显示解析出的作品结构。",
                 modifier = contentModifier,
             )
 

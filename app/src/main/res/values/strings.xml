@@ -2,16 +2,20 @@
 <resources>
     <string name="app_name">AIChatNovel</string>
 
-    <string name="home_title">AIChatNovel</string>
-    <string name="home_subtitle">小说多角色沉浸式语音 / 视频对话</string>
+    <string name="home_subtitle">小说多角色沉浸式语音 / 剧情演出</string>
+    <string name="home_loading">正在读取作品…</string>
+    <string name="home_current_story">当前作品</string>
+    <string name="home_story_scale">%1$d 章 · %2$d 场</string>
+    <string name="home_action_continue">继续制作</string>
+    <string name="home_empty_title">还没有作品</string>
+    <string name="home_empty_desc">导入一本小说后，这里会显示作品、章节和场景。</string>
+    <string name="home_action_import">导入小说</string>
+    <string name="home_secondary_title">更多</string>
 
-    <string name="nav_novel">小说</string>
     <string name="nav_character">角色</string>
-    <string name="nav_scene">场景</string>
-    <string name="nav_story_play">剧情演出</string>
     <string name="nav_settings">设置</string>
 
-    <string name="novel_title">小说</string>
+    <string name="novel_title">作品</string>
     <string name="character_title">角色</string>
     <string name="scene_title">场景</string>
     <string name="story_play_title">剧情演出</string>
@@ -19,13 +23,55 @@
 
     <string name="action_back">返回</string>
 
-    <string name="import_title">导入原文</string>
+    <string name="novel_empty_title">还没有作品</string>
+    <string name="novel_empty_desc">导入小说原文后，作品与章节会出现在这里。</string>
+    <string name="novel_action_import">导入小说</string>
+    <string name="novel_chapters_title">章节</string>
+    <string name="novel_chapters_count">共 %1$d 章</string>
+    <string name="novel_chapter_scene_count">%1$d 个场景</string>
+    <string name="novel_chapter_empty">本章暂无场景</string>
+    <string name="novel_action_enter">进入</string>
+    <string name="novel_import_entry_title">导入新的小说</string>
+
+    <string name="scene_empty_title">本章还没有场景</string>
+    <string name="scene_empty_desc">场景由导入解析生成，回到作品页重新导入即可。</string>
+    <string name="scene_audio_ready">已有语音</string>
+    <string name="scene_audio_absent">尚未生成语音</string>
+    <string name="scene_meta_location">地点：%1$s</string>
+    <string name="scene_meta_time">时间：%1$s</string>
+    <string name="scene_meta_characters">%1$d 位角色</string>
+    <string name="scene_meta_beats">%1$d 个节拍</string>
+    <string name="scene_action_enter">进入演出</string>
+
+    <string name="story_play_empty_title">这个场景还没有演出内容</string>
+    <string name="story_play_empty_desc">演出节拍由导入解析生成，回到作品页重新导入即可。</string>
+    <string name="story_play_section_script">节拍</string>
+    <string name="story_play_section_voice">语音</string>
+    <string name="story_play_voice_service">语音服务</string>
+    <string name="story_play_voice_ready">已有语音</string>
+    <string name="story_play_voice_absent">尚未生成语音</string>
+    <string name="story_play_voice_unconfigured">尚未配置此服务</string>
+    <string name="story_play_action_generate">生成语音</string>
+    <string name="story_play_action_generating">正在生成语音…</string>
+    <string name="story_play_idle">未播放</string>
+    <string name="story_play_action_play">播放</string>
+    <string name="story_play_action_pause">暂停</string>
+    <string name="story_play_action_reset">重置</string>
+
+    <string name="character_empty_title">还没有角色</string>
+    <string name="character_empty_desc">角色由导入解析生成，导入作品后即可看到他们。</string>
+    <string name="character_voice_unset">未设置声音</string>
+    <string name="character_voice_set">已设置声音：%1$s</string>
+    <string name="character_voice_footnote">角色声音来自导入时解析出的音色设定；手动调整尚未开放。</string>
+
+    <string name="settings_section_playback">播放</string>
+    <string name="settings_show_narration">显示旁白</string>
+    <string name="settings_show_narration_desc">在剧情演出中显示旁白内容</string>
+    <string name="settings_auto_advance">自动推进场景</string>
+    <string name="settings_auto_advance_desc">一段场景播放结束后自动进入下一段</string>
+
+    <string name="import_title">导入小说</string>
     <string name="explorer_title">解析结果</string>
-    <string name="novel_import_entry_title">导入原文并解析</string>
-    <string name="novel_import_entry_desc">粘贴小说原文，选择解析模式后生成场景与演出事件</string>
-    <string name="import_mode_title">解析模式</string>
-    <string name="import_mode_local">本地样例（Local Sample）</string>
-    <string name="import_mode_remote">DeepSeek</string>
     <string name="import_text_label">小说原文</string>
     <string name="import_metadata_title">作品与章节信息</string>
     <string name="import_story_title_label">作品名</string>
@@ -37,4 +83,15 @@
     <string name="import_action_submit">开始解析</string>
     <string name="import_action_fill_sample">填充示例原文</string>
     <string name="import_action_open_explorer">查看解析结果</string>
+    <string name="import_action_open_story">查看作品</string>
+    <string name="import_mode_title">解析模式</string>
+    <string name="import_mode_local">本地样例（Local Sample）</string>
+    <string name="import_mode_remote">DeepSeek</string>
+    <string name="import_parsing">正在解析小说…</string>
+    <string name="import_result_success">解析完成</string>
+    <string name="import_result_partial">解析完成，但存在告警</string>
+    <string name="import_result_failure">解析失败</string>
+    <string name="import_result_scene_count">生成场景 %1$d 个</string>
+    <string name="import_result_character_count">识别角色 %1$d 位</string>
+    <string name="import_result_warning_count">有 %1$d 处内容需要留意</string>
 </resources>

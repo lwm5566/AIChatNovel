@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichatnovel.app.R
 import com.aichatnovel.app.di.StoryImportMode
+import com.aichatnovel.app.repository.StoryImportFailure
 import com.aichatnovel.app.viewmodel.ImportStatus
 import com.aichatnovel.app.viewmodel.ImportUiState
 import com.aichatnovel.app.viewmodel.ImportViewModel
@@ -38,6 +39,7 @@ import com.aichatnovel.app.viewmodel.ImportViewModel
 @Composable
 fun ImportRoute(
     onBack: () -> Unit,
+    onOpenStory: () -> Unit,
     onOpenExplorer: () -> Unit,
     viewModel: ImportViewModel = viewModel(factory = ImportViewModel.Factory),
 ) {
@@ -53,6 +55,7 @@ fun ImportRoute(
         onSynopsisChange = viewModel::onSynopsisChange,
         onChapterTitleChange = viewModel::onChapterTitleChange,
         onImport = viewModel::import,
+        onOpenStory = onOpenStory,
         onOpenExplorer = onOpenExplorer,
     )
 }
@@ -70,6 +73,7 @@ fun ImportScreen(
     onSynopsisChange: (String) -> Unit,
     onChapterTitleChange: (String) -> Unit,
     onImport: () -> Unit,
+    onOpenStory: () -> Unit,
     onOpenExplorer: () -> Unit,
 ) {
     Scaffold(
@@ -126,7 +130,11 @@ fun ImportScreen(
                 }
             }
 
-            ImportStatusView(status = uiState.status, onOpenExplorer = onOpenExplorer)
+            ImportStatusView(
+                status = uiState.status,
+                onOpenStory = onOpenStory,
+                onOpenExplorer = onOpenExplorer,
+            )
         }
     }
 }
@@ -255,6 +263,7 @@ private fun ModeOption(
 @Composable
 private fun ImportStatusView(
     status: ImportStatus,
+    onOpenStory: () -> Unit,
     onOpenExplorer: () -> Unit,
 ) {
     when (status) {
@@ -265,61 +274,88 @@ private fun ImportStatusView(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CircularProgressIndicator()
-            Text(text = "正在解析…", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = stringResource(R.string.import_parsing),
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
 
         is ImportStatus.Success -> ResultCard(
-            title = "解析成功",
+            title = stringResource(R.string.import_result_success),
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             lines = listOf(
-                "场景：${status.sceneCount}",
-                "角色：${status.characterCount}",
-                "schemaVersion：${status.schemaVersion}",
+                stringResource(R.string.import_result_scene_count, status.sceneCount),
+                stringResource(R.string.import_result_character_count, status.characterCount),
             ),
+            onOpenStory = onOpenStory,
             onOpenExplorer = onOpenExplorer,
         )
 
         is ImportStatus.Partial -> ResultCard(
-            title = "解析完成，但存在告警",
+            title = stringResource(R.string.import_result_partial),
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
             contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
             lines = listOf(
-                "场景：${status.sceneCount}",
-                "角色：${status.characterCount}",
-                "schemaVersion：${status.schemaVersion}",
-            ) + status.warnings.map { "告警：$it" },
+                stringResource(R.string.import_result_scene_count, status.sceneCount),
+                stringResource(R.string.import_result_character_count, status.characterCount),
+                stringResource(R.string.import_result_warning_count, status.warnings.size),
+            ),
+            onOpenStory = onOpenStory,
             onOpenExplorer = onOpenExplorer,
         )
 
-        is ImportStatus.Failure -> Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            ),
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(text = "解析失败", style = MaterialTheme.typography.titleMedium)
-                Text(text = "原因：${status.reason.name}", style = MaterialTheme.typography.bodyMedium)
-                Text(text = status.message, style = MaterialTheme.typography.bodySmall)
+        is ImportStatus.Failure -> FailureCard(reason = status.reason)
+    }
+}
 
-                if (status.errors.isNotEmpty()) {
-                    Text(
-                        text = "校验错误",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    status.errors.forEach { error ->
-                        Text(text = "· $error", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+/**
+ * 导入失败的展示。
+ *
+ * 只给出用户看得懂的原因与下一步建议；内部编码、JSON 路径与供应商原始信息
+ * 属于诊断信息，不进普通界面。
+ */
+@Composable
+private fun FailureCard(reason: StoryImportFailure) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.import_result_failure),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = importFailureText(reason),
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
     }
+}
+
+/**
+ * 导入失败原因的用户可读说明：一句话说清发生了什么，一句话说下一步怎么办。
+ */
+internal fun importFailureText(reason: StoryImportFailure): String = when (reason) {
+    StoryImportFailure.MISSING_API_KEY -> "尚未配置 AI 服务凭据，无法解析小说。请联系管理员配置后重试。"
+    StoryImportFailure.NETWORK -> "网络连接失败，请检查网络后重试。"
+    StoryImportFailure.TIMEOUT -> "解析等待超时，请稍后重试。"
+    StoryImportFailure.HTTP_ERROR -> "AI 服务暂时不可用，请稍后重试。"
+    StoryImportFailure.EMPTY_RESPONSE,
+    StoryImportFailure.MALFORMED_ENVELOPE,
+    StoryImportFailure.MARKDOWN_RESPONSE,
+    StoryImportFailure.NOT_JSON_OBJECT,
+    StoryImportFailure.INVALID_JSON,
+    -> "AI 返回的内容无法解析成剧情结构，请重试；若反复失败，请换一段原文。"
+
+    StoryImportFailure.VALIDATION_ERROR -> "解析结果未通过内容校验，请尝试换一段原文后重试。"
 }
 
 @Composable
@@ -328,6 +364,7 @@ private fun ResultCard(
     containerColor: Color,
     contentColor: Color,
     lines: List<String>,
+    onOpenStory: () -> Unit,
     onOpenExplorer: () -> Unit,
 ) {
     Card(
@@ -336,11 +373,17 @@ private fun ResultCard(
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(text = title, style = MaterialTheme.typography.titleMedium)
             lines.forEach { line ->
                 Text(text = line, style = MaterialTheme.typography.bodySmall)
+            }
+            Button(
+                onClick = onOpenStory,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.import_action_open_story))
             }
             TextButton(onClick = onOpenExplorer) {
                 Text(stringResource(R.string.import_action_open_explorer))

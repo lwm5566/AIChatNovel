@@ -41,6 +41,7 @@ sealed interface ImportStatus {
     data class Failure(
         val reason: StoryImportFailure,
         val message: String,
+        /** 校验问题的完整描述（含内部编码与 JSON 路径），仅用于诊断，不进普通界面。 */
         val errors: List<String> = emptyList(),
     ) : ImportStatus
 }

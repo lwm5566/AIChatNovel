@@ -26,10 +26,9 @@ fun AppNavHost(
     ) {
         composable(Destinations.HOME) {
             HomeRoute(
-                onOpenNovel = { navController.navigate(Destinations.NOVEL) },
+                onContinueWork = { navController.navigate(Destinations.NOVEL) },
+                onImportStory = { navController.navigate(Destinations.IMPORT) },
                 onOpenCharacters = { navController.navigate(Destinations.CHARACTERS) },
-                onOpenScenes = { navController.navigate(Destinations.scenes()) },
-                onOpenStoryPlay = { navController.navigate(Destinations.storyPlay()) },
                 onOpenSettings = { navController.navigate(Destinations.SETTINGS) },
             )
         }
@@ -45,6 +44,13 @@ fun AppNavHost(
         composable(Destinations.IMPORT) {
             ImportRoute(
                 onBack = { navController.popBackStack() },
+                onOpenStory = {
+                    // 解析成功后直接进入作品结构，并把导入页从返回栈上收回，
+                    // 避免用户按返回时又退回导入表单。
+                    navController.navigate(Destinations.NOVEL) {
+                        popUpTo(Destinations.HOME)
+                    }
+                },
                 onOpenExplorer = { navController.navigate(Destinations.EXPLORER) },
             )
         }

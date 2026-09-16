@@ -72,26 +72,26 @@ fun SettingsScreen(
             modifier = contentModifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
+            Text(
+                text = stringResource(R.string.settings_section_playback),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+            )
             SettingSwitchRow(
-                title = "显示旁白",
-                description = "在剧情演出中展示旁白内容",
+                title = stringResource(R.string.settings_show_narration),
+                description = stringResource(R.string.settings_show_narration_desc),
                 checked = uiState.settings.showNarration,
                 onCheckedChange = onShowNarrationChange,
             )
             HorizontalDivider()
             SettingSwitchRow(
-                title = "自动推进场景",
-                description = "一段场景播放结束后自动进入下一段",
+                title = stringResource(R.string.settings_auto_advance),
+                description = stringResource(R.string.settings_auto_advance_desc),
                 checked = uiState.settings.autoAdvanceScenes,
                 onCheckedChange = onAutoAdvanceScenesChange,
             )
             HorizontalDivider()
-            Text(
-                text = "当前为占位设置，用于打通「设置界面 → Repository → 持久化」链路。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(16.dp),
-            )
         }
     }
 }

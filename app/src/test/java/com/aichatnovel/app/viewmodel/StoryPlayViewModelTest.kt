@@ -1,12 +1,15 @@
 package com.aichatnovel.app.viewmodel
 
 import com.aichatnovel.app.data.repository.ImportedStory
+import com.aichatnovel.app.data.repository.InMemoryAudioAssetRepository
 import com.aichatnovel.app.data.repository.InMemoryCharacterRepository
 import com.aichatnovel.app.data.repository.InMemoryPerformanceRepository
 import com.aichatnovel.app.data.repository.InMemoryStoryRepository
 import com.aichatnovel.app.data.repository.StoryContentStore
 import com.aichatnovel.app.domain.model.Action
 import com.aichatnovel.app.domain.model.ActionEvent
+import com.aichatnovel.app.domain.model.AudioAsset
+import com.aichatnovel.app.domain.model.AudioFormat
 import com.aichatnovel.app.domain.model.Beat
 import com.aichatnovel.app.domain.model.CameraEvent
 import com.aichatnovel.app.domain.model.Chapter
@@ -27,6 +30,7 @@ import com.aichatnovel.app.domain.model.SoundEvent
 import com.aichatnovel.app.domain.model.Story
 import com.aichatnovel.app.domain.model.StoryContent
 import com.aichatnovel.app.domain.model.Timing
+import com.aichatnovel.app.domain.model.TtsProviderId
 import com.aichatnovel.app.domain.model.Utterance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -41,6 +45,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -491,6 +497,60 @@ class StoryPlayViewModelTest {
         runCurrent()
         assertEquals("p2", vm.playbackState.value.currentEventId)
     }
+
+    @Test
+    fun `the scene overview exposes the scene title and beat count`() = runTest {
+        val state = viewModel(sceneId = "scene-1").uiState.first { !it.isLoading }
+
+        assertEquals("教室", state.sceneTitle)
+        assertEquals(2, state.beats.size)
+        assertEquals(PresentationMode.LiveScene, state.presentationMode)
+    }
+
+    @Test
+    fun `without imported audio the scene reports no audio`() = runTest {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        assertFalse(vm.audioState.value.hasAudio)
+    }
+
+    @Test
+    fun `a real audio asset marks the scene as having audio`() = runTest {
+        val store = StoryContentStore(playbackFixture())
+        val assets = InMemoryAudioAssetRepository(mapOf("p1" to audioAsset("p1")))
+        val vm = StoryPlayViewModel(
+            sceneId = PLAYBACK_SCENE_ID,
+            performanceRepository = InMemoryPerformanceRepository(store),
+            characterRepository = InMemoryCharacterRepository(store),
+            storyRepository = InMemoryStoryRepository(store),
+            audioAssetRepository = assets,
+        )
+        advanceUntilIdle()
+
+        assertTrue(vm.audioState.value.hasAudio)
+    }
+
+    @Test
+    fun `generating without any capability fails loudly and creates no audio`() = runTest {
+        val vm = playbackViewModel()
+        advanceUntilIdle()
+
+        vm.generateSceneAudio()
+        advanceUntilIdle()
+
+        assertEquals(AudioGenerationStatus.Failed, vm.audioState.value.status)
+        assertNotNull(vm.audioState.value.message)
+        assertFalse(vm.audioState.value.hasAudio)
+    }
+
+    private fun audioAsset(eventId: String): AudioAsset = AudioAsset(
+        id = "asset-$eventId",
+        reference = "/audio/$eventId.mp3",
+        durationMillis = 1_000L,
+        format = AudioFormat.MP3,
+        source = TtsProviderId.AZURE,
+    )
 
     private suspend fun linesOf(sceneId: String, beatId: String): List<PerformanceLine> =
         viewModel(sceneId = sceneId).uiState.first { !it.isLoading }
