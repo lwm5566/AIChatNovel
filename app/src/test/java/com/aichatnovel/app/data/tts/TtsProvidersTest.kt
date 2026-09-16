@@ -10,6 +10,7 @@ import com.aichatnovel.app.repository.TtsFailure
 import com.aichatnovel.app.repository.TtsResult
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -230,9 +231,45 @@ class TtsProvidersTest {
             val body = json.parseToJsonElement(recorded.body.readUtf8()).jsonObject
             assertEquals("mimo-v2.5-tts", body["model"]!!.jsonPrimitive.content)
             assertEquals("冰糖", body["audio"]!!.jsonObject["voice"]!!.jsonPrimitive.content)
+            assertEquals("mp3", body["audio"]!!.jsonObject["format"]!!.jsonPrimitive.content)
+
+            // 待合成的正文必须放在 assistant message；user 只能作可选的风格指令，本实现不发送
+            val messages = body["messages"]!!.jsonArray
+            assertEquals(1, messages.size)
+            assertEquals("assistant", messages[0].jsonObject["role"]!!.jsonPrimitive.content)
+            assertEquals("你好，世界", messages[0].jsonObject["content"]!!.jsonPrimitive.content)
+            assertTrue(messages.none { it.jsonObject["role"]!!.jsonPrimitive.content == "user" })
 
             assertTrue(result is TtsResult.Success)
             assertEquals(listOf<Byte>(11, 12), (result as TtsResult.Success).audio.toList())
+        }
+    }
+
+    @Test
+    fun `mimo without credentials never fires a request`() = runTest {
+        val provider = XiaomiMiMoTtsProvider(InMemoryProviderCredentialStore(), OkHttpClient())
+
+        val result = provider.synthesize(request(voice = "mimo_default"))
+
+        assertEquals(TtsFailure.MISSING_CREDENTIALS, (result as TtsResult.Failure).reason)
+    }
+
+    @Test
+    fun `mimo http errors are classified without leaking the key`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(401).setBody("denied"))
+            server.start()
+            val store = InMemoryProviderCredentialStore()
+            store.put(ProviderCredentials(TtsProviderId.XIAOMI_MIMO, secret = "fake-mimo-key"))
+            val provider = XiaomiMiMoTtsProvider(store, OkHttpClient(), server.url("/").toString())
+
+            val result = provider.synthesize(request(voice = "mimo_default"))
+
+            val failure = result as TtsResult.Failure
+            assertEquals(TtsFailure.UNAUTHORIZED, failure.reason)
+            assertEquals(401, failure.httpStatus)
+            // 错误信息里不得出现凭据
+            assertTrue(!failure.message.orEmpty().contains("fake-mimo-key"))
         }
     }
 

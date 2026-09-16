@@ -434,6 +434,13 @@ private data class MiMoChatResponse(
  * - body：`model = "mimo-v2.5-tts"` + `messages` + `audio{voice,format}`
  * - 响应音频在 `choices[0].message.audio.data`（base64）
  *
+ * **离线审查结论（Phase 6C Review Gate）**：待合成的正文放在 `role = "assistant"` 的 message 里；
+ * `role = "user"` 是**可选**的风格 / 上下文指令（官方 usage guide 明确写它 optional），不是正文载体。
+ * 本实现不发送 user message。
+ *
+ * 注：官方 API reference 的字段说明与官方示例在 role 上一度表述不一；无凭据环境下**未做 live 验证**，
+ * 此选择以官方示例为准，待有真实凭据时复核。
+ *
  * 注意：MiMo 是 **TTS**，与 DeepSeek 文本 Provider 是两种能力，不共用协议。
  */
 class XiaomiMiMoTtsProvider(
@@ -468,7 +475,7 @@ class XiaomiMiMoTtsProvider(
             MiMoTtsPayload.serializer(),
             MiMoTtsPayload(
                 model = MODEL_ID,
-                messages = listOf(MiMoMessage(role = ROLE_USER, content = request.text)),
+                messages = listOf(MiMoMessage(role = ROLE_ASSISTANT, content = request.text)),
                 audio = MiMoAudioOptions(voice = voice, format = format),
             ),
         )
@@ -553,7 +560,7 @@ class XiaomiMiMoTtsProvider(
         )
 
         private const val USER_AGENT = "AIChatNovel"
-        private const val ROLE_USER = "user"
+        private const val ROLE_ASSISTANT = "assistant"
         private const val HTTP_UNAUTHORIZED = 401
         private const val HTTP_FORBIDDEN = 403
         private const val HTTP_BAD_REQUEST = 400
