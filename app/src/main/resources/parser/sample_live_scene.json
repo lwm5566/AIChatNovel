@@ -1,0 +1,195 @@
+{
+  "schemaVersion": "1.0",
+  "storyId": "story-1",
+  "chapterId": "chapter-1",
+  "characters": [
+    {
+      "tempId": "c1",
+      "name": "林晚",
+      "aliases": ["小晚", "转学生"],
+      "description": "沉默寡言的转学生，喜欢在黄昏时一个人看天空。",
+      "confidence": 0.92,
+      "sourceSpan": {
+        "chapterId": "chapter-1",
+        "startOffset": 62,
+        "endOffset": 73,
+        "snippet": "林晚背对着走廊站在窗边"
+      }
+    },
+    {
+      "tempId": "c2",
+      "name": "陆沉",
+      "aliases": ["班长"],
+      "description": "班长，习惯把每句话都说得很轻。",
+      "confidence": 0.9,
+      "sourceSpan": {
+        "chapterId": "chapter-1",
+        "startOffset": 74,
+        "endOffset": 86,
+        "snippet": "陆沉合上课本，缓缓抬起头"
+      }
+    }
+  ],
+  "scenes": [
+    {
+      "tempId": "s1",
+      "title": "黄昏的教室",
+      "presentationMode": "LiveScene",
+      "presentationEvidence": {
+        "text": "两人同在一间教室里，面对面说话",
+        "sourceSpan": {
+          "chapterId": "chapter-1",
+          "startOffset": 48,
+          "endOffset": 62,
+          "snippet": "放学后的教室里只剩下两个人。"
+        }
+      },
+      "setting": {
+        "location": "城南高中 三年二班",
+        "timeOfDay": "黄昏",
+        "weather": "晴",
+        "lighting": "暖橘色夕阳斜照"
+      },
+      "participants": ["c1", "c2"],
+      "sourceSpan": {
+        "chapterId": "chapter-1",
+        "startOffset": 0,
+        "endOffset": 21,
+        "snippet": "黄昏把教室染成暖橘色，窗外的蝉鸣渐渐稀疏。"
+      },
+      "confidence": 0.88,
+      "beats": [
+        {
+          "id": "b1",
+          "order": 1,
+          "events": [
+            {
+              "type": "environment",
+              "id": "c1-e1",
+              "timing": { "startOffset": 0, "duration": 3000, "durationSource": "Estimated" },
+              "text": "黄昏把教室染成暖橘色，窗外的蝉鸣渐渐稀疏。",
+              "location": "城南高中 三年二班",
+              "sourceSpan": {
+                "chapterId": "chapter-1",
+                "startOffset": 0,
+                "endOffset": 21,
+                "snippet": "黄昏把教室染成暖橘色，窗外的蝉鸣渐渐稀疏。"
+              },
+              "confidence": 0.9
+            },
+            {
+              "type": "sound",
+              "id": "c1-e2",
+              "timing": { "startOffset": 0, "duration": 3000, "durationSource": "Estimated" },
+              "description": "远处传来社团活动的鼓点声，一下一下，敲在空掉的走廊里。",
+              "sourceSpan": {
+                "chapterId": "chapter-1",
+                "startOffset": 21,
+                "endOffset": 48,
+                "snippet": "远处传来社团活动的鼓点声，一下一下，敲在空掉的走廊里。"
+              },
+              "confidence": 0.78
+            }
+          ]
+        },
+        {
+          "id": "b2",
+          "order": 2,
+          "events": [
+            {
+              "type": "dialogue",
+              "id": "c1-e3",
+              "timing": { "startOffset": 0, "duration": 2200, "durationSource": "Estimated" },
+              "speakerTempId": "c1",
+              "text": "你还没走？",
+              "emotion": "平静",
+              "speakingStyle": "迟疑",
+              "addresseeTempId": "c2",
+              "isInnerMonologue": false,
+              "language": "zh-CN",
+              "speech": { "rate": 0.95, "pitch": 1.0, "volume": 1.0 },
+              "sourceSpan": {
+                "chapterId": "chapter-1",
+                "startOffset": 88,
+                "endOffset": 95,
+                "snippet": "「你还没走？」"
+              },
+              "confidence": 0.86
+            },
+            {
+              "type": "action",
+              "id": "c1-e4",
+              "timing": { "startOffset": 0, "duration": 1800, "durationSource": "Estimated" },
+              "characterTempId": "c2",
+              "description": "陆沉没有立刻回答，只是把书推回抽屉。",
+              "sourceSpan": {
+                "chapterId": "chapter-1",
+                "startOffset": 100,
+                "endOffset": 118,
+                "snippet": "陆沉没有立刻回答，只是把书推回抽屉。"
+              },
+              "confidence": 0.82
+            }
+          ]
+        },
+        {
+          "id": "b3",
+          "order": 3,
+          "events": [
+            {
+              "type": "dialogue",
+              "id": "c1-e5",
+              "timing": { "startOffset": 0, "duration": 1600, "durationSource": "Estimated" },
+              "speakerTempId": "c2",
+              "text": "我在等一句话。",
+              "emotion": "克制",
+              "speakingStyle": "轻声",
+              "addresseeTempId": "c1",
+              "isInnerMonologue": false,
+              "language": "zh-CN",
+              "sourceSpan": {
+                "chapterId": "chapter-1",
+                "startOffset": 119,
+                "endOffset": 128,
+                "snippet": "「我在等一句话。」"
+              },
+              "confidence": 0.88
+            },
+            {
+              "type": "camera",
+              "id": "c1-e6",
+              "timing": { "startOffset": 600, "duration": 2600, "durationSource": "Estimated" },
+              "description": "镜头缓缓拉远，两人被光晕包住。",
+              "sourceSpan": {
+                "chapterId": "chapter-1",
+                "startOffset": 135,
+                "endOffset": 164,
+                "snippet": "夕阳把两个人的影子拉得很长，镜头缓缓拉远，两人被光晕包住。"
+              },
+              "confidence": 0.55
+            }
+          ]
+        },
+        {
+          "id": "b4",
+          "order": 4,
+          "events": [
+            {
+              "type": "narration",
+              "id": "c1-e7",
+              "timing": { "startOffset": 0, "duration": 1500, "durationSource": "Estimated" },
+              "text": "放学后的教室里只剩下两个人。",
+              "sourceSpan": {
+                "chapterId": "chapter-1",
+                "startOffset": 48,
+                "endOffset": 62,
+                "snippet": "放学后的教室里只剩下两个人。"
+              },
+              "confidence": 0.8
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

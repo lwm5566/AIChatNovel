@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AIChatNovel</string>
+
+    <string name="home_title">AIChatNovel</string>
+    <string name="home_subtitle">小说多角色沉浸式语音 / 视频对话</string>
+
+    <string name="nav_novel">小说</string>
+    <string name="nav_character">角色</string>
+    <string name="nav_scene">场景</string>
+    <string name="nav_story_play">剧情演出</string>
+    <string name="nav_settings">设置</string>
+
+    <string name="novel_title">小说</string>
+    <string name="character_title">角色</string>
+    <string name="scene_title">场景</string>
+    <string name="story_play_title">剧情演出</string>
+    <string name="settings_title">设置</string>
+
+    <string name="action_back">返回</string>
+
+    <string name="import_title">导入原文</string>
+    <string name="explorer_title">解析结果</string>
+    <string name="novel_import_entry_title">导入原文并解析</string>
+    <string name="novel_import_entry_desc">粘贴小说原文，选择解析模式后生成场景与演出事件</string>
+    <string name="import_mode_title">解析模式</string>
+    <string name="import_mode_local">本地样例（Local Sample）</string>
+    <string name="import_mode_remote">DeepSeek</string>
+    <string name="import_text_label">小说原文</string>
+    <string name="import_action_submit">开始解析</string>
+    <string name="import_action_fill_sample">填充示例原文</string>
+    <string name="import_action_open_explorer">查看解析结果</string>
+</resources>

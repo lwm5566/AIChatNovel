@@ -1,0 +1,184 @@
+{
+  "schemaVersion": "1.0",
+  "storyId": "story-1",
+  "chapterId": "chapter-2",
+  "characters": [
+    {
+      "tempId": "x1",
+      "name": "林晚",
+      "aliases": ["小晚"],
+      "description": "沉默寡言的转学生。",
+      "confidence": 0.9,
+      "sourceSpan": {
+        "chapterId": "chapter-2",
+        "startOffset": 3,
+        "endOffset": 9,
+        "snippet": "林晚躺在床上"
+      }
+    },
+    {
+      "tempId": "x2",
+      "name": "陆沉",
+      "aliases": ["班长"],
+      "description": "班长，习惯把每句话都说得很轻。",
+      "confidence": 0.9,
+      "sourceSpan": {
+        "chapterId": "chapter-2",
+        "startOffset": 20,
+        "endOffset": 26,
+        "snippet": "给陆沉发消息"
+      }
+    }
+  ],
+  "scenes": [
+    {
+      "tempId": "s1",
+      "title": "手机屏幕上的对话",
+      "presentationMode": "InstantMessaging",
+      "presentationEvidence": {
+        "text": "林晚拿起手机，打开微信，给陆沉发消息",
+        "sourceSpan": {
+          "chapterId": "chapter-2",
+          "startOffset": 3,
+          "endOffset": 26,
+          "snippet": "林晚躺在床上，拿起手机，打开微信，给陆沉发消息"
+        }
+      },
+      "setting": {
+        "location": "林晚的卧室",
+        "timeOfDay": "深夜",
+        "lighting": "手机屏幕的光"
+      },
+      "participants": ["x1", "x2"],
+      "sourceSpan": {
+        "chapterId": "chapter-2",
+        "startOffset": 0,
+        "endOffset": 37,
+        "snippet": "深夜，林晚躺在床上，拿起手机，打开微信，给陆沉发消息。屏幕的光照在她脸上。"
+      },
+      "confidence": 0.87,
+      "beats": [
+        {
+          "id": "x1-b1",
+          "order": 1,
+          "events": [
+            {
+              "type": "environment",
+              "id": "x1-e1",
+              "timing": { "startOffset": 0, "duration": 1500, "durationSource": "Estimated" },
+              "text": "屏幕的光照在她脸上。",
+              "location": "林晚的卧室",
+              "sourceSpan": {
+                "chapterId": "chapter-2",
+                "startOffset": 27,
+                "endOffset": 36,
+                "snippet": "屏幕的光照在她脸上"
+              },
+              "confidence": 0.8
+            }
+          ]
+        },
+        {
+          "id": "x1-b2",
+          "order": 2,
+          "events": [
+            {
+              "type": "dialogue",
+              "id": "x1-e2",
+              "timing": { "startOffset": 0, "duration": 1800, "durationSource": "Estimated" },
+              "speakerTempId": "x1",
+              "text": "今天课上那句话，你是认真的吗？",
+              "emotion": "忐忑",
+              "speakingStyle": "打字口吻",
+              "addresseeTempId": "x2",
+              "isInnerMonologue": false,
+              "language": "zh-CN",
+              "sourceSpan": {
+                "chapterId": "chapter-2",
+                "startOffset": 41,
+                "endOffset": 56,
+                "snippet": "今天课上那句话，你是认真的吗？"
+              },
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "id": "x1-b3",
+          "order": 3,
+          "events": [
+            {
+              "type": "dialogue",
+              "id": "x1-e3",
+              "timing": { "startOffset": 0, "duration": 900, "durationSource": "Estimated" },
+              "speakerTempId": "x2",
+              "text": "嗯。",
+              "emotion": "克制",
+              "speakingStyle": "打字口吻",
+              "addresseeTempId": "x1",
+              "isInnerMonologue": false,
+              "language": "zh-CN",
+              "sourceSpan": {
+                "chapterId": "chapter-2",
+                "startOffset": 60,
+                "endOffset": 62,
+                "snippet": "嗯。"
+              },
+              "confidence": 0.85
+            }
+          ]
+        },
+        {
+          "id": "x1-b4",
+          "order": 4,
+          "events": [
+            {
+              "type": "dialogue",
+              "id": "x1-e4",
+              "timing": { "startOffset": 0, "duration": 1700, "durationSource": "Estimated" },
+              "speakerTempId": "x1",
+              "text": "那你为什么不抬头看我。",
+              "emotion": "失落",
+              "speakingStyle": "打字口吻",
+              "addresseeTempId": "x2",
+              "isInnerMonologue": false,
+              "language": "zh-CN",
+              "sourceSpan": {
+                "chapterId": "chapter-2",
+                "startOffset": 66,
+                "endOffset": 77,
+                "snippet": "那你为什么不抬头看我。"
+              },
+              "confidence": 0.88
+            }
+          ]
+        },
+        {
+          "id": "x1-b5",
+          "order": 5,
+          "events": [
+            {
+              "type": "dialogue",
+              "id": "x1-e5",
+              "timing": { "startOffset": 0, "duration": 1600, "durationSource": "Estimated" },
+              "speakerTempId": "x2",
+              "text": "因为我在等你说完。",
+              "emotion": "克制",
+              "speakingStyle": "打字口吻",
+              "addresseeTempId": "x1",
+              "isInnerMonologue": false,
+              "language": "zh-CN",
+              "sourceSpan": {
+                "chapterId": "chapter-2",
+                "startOffset": 81,
+                "endOffset": 90,
+                "snippet": "因为我在等你说完。"
+              },
+              "confidence": 0.9
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
