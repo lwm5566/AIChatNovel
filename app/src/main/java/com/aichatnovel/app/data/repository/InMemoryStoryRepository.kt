@@ -5,24 +5,28 @@ import com.aichatnovel.app.domain.model.Scene
 import com.aichatnovel.app.domain.model.Story
 import com.aichatnovel.app.repository.StoryRepository
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 /**
  * 基于内存的 [StoryRepository] 实现。
  *
- * 作品与章节元信息来自 [SampleStoryData]；场景来自 [StoryContentStore]（解析管线写入）。
+ * 作品 / 章节 / 场景**全部**来自 [StoryContentStore] 的当前导入快照，不再有任何静态兜底：
+ * 尚未导入时 `observeStories` / `observeChapters` 返回空，这是正确行为——
+ * 不能用样例数据去补出一个「看起来有内容」的界面。
  */
 class InMemoryStoryRepository(
     private val store: StoryContentStore,
-    private val stories: List<Story> = emptyList(),
-    private val chapters: List<Chapter> = emptyList(),
 ) : StoryRepository {
 
-    override fun observeStories(): Flow<List<Story>> = flowOf(stories)
+    override fun observeStories(): Flow<List<Story>> =
+        store.imported.map { imported -> listOfNotNull(imported?.story) }
 
     override fun observeChapters(storyId: String): Flow<List<Chapter>> =
-        flowOf(chapters.filter { it.storyId == storyId }.sortedBy { it.index })
+        store.imported.map { imported ->
+            imported?.chapters.orEmpty()
+                .filter { it.storyId == storyId }
+                .sortedBy { it.index }
+        }
 
     override fun observeScenes(chapterId: String): Flow<List<Scene>> =
         store.content.map { content ->

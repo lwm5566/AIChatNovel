@@ -159,6 +159,41 @@
 
 ---
 
+## Phase 5B-1 — 当前导入归属隔离（修复 M2）
+
+- **背景**：Phase 5A 审核确认的 **M2** —— 任意导入后 Story / Chapter 元信息仍来自 `SampleStoryData`。本阶段只做归属隔离，**不做真实 metadata**。
+- **根因（审计结论）**：Story / Chapter 的展示 metadata 与 `StoryContent` **完全分离**：
+  `StoryContent` 不含 Story/Chapter；`ParseResponseDto` 也没有 title / author / chapterTitle / chapterIndex；
+  `InMemoryStoryRepository` 只能用静态常量兜底，`AppContainer` 又把 `SampleStoryData.STORY_ID` / `CHAPTER_ID_1` 当作任意导入的归属 id。
+- **改动文件**
+  - 新增 `di/ImportIdGenerator.kt`（`ImportIdGenerator` + `SequentialImportIdGenerator`）
+  - `data/repository/StoryContentStore.kt`：新增 `ImportedStory(story, chapters, content)`；store 持有当前导入快照；`content` 与 `imported` 同一写入点保持同步
+  - `data/repository/InMemoryStoryRepository.kt`：`observeStories` / `observeChapters` 改为从快照派生；构造函数去掉静态 Story/Chapter 列表
+  - `data/repository/SampleStoryData.kt`：KDoc 明确它只是 **sample fixture**
+  - `di/AppContainer.kt`：每次导入取全新 storyId/chapterId；成功后组装并写入 `ImportedStory`；不再引用 `SampleStoryData`
+  - `test/di/AppContainerTest.kt`、`test/viewmodel/StoryExplorerViewModelTest.kt`：新增/调整用例
+- **ImportedStory 结构**：`ImportedStory(story: Story, chapters: List<Chapter>, content: StoryContent)`；Store 只有一个槽位（当前导入），**无历史、无多作品管理**。
+- **Story / Chapter ID 策略（Review Gate 修正后的最终版）**：**ownership 由导入方决定，不由模型回显决定**。
+  - Remote（普通导入，语义 = 一章原文）：`request.storyId` / `request.chapterId` 是唯一 authoritative ID；`chapters` 固定为一个 `Chapter(id = request.chapterId, storyId = request.storyId, index = 1)`；content **无条件归一**（`characters.map { it.copy(storyId = request.storyId) }`、`scenes.map { it.copy(chapterId = request.chapterId) }`）——不是“不一致才修”，而是明确以 request 为准。
+  - Local Sample：fixture 忽略请求参数，storyId / chapterIds 取自样例内容自身声明，保留两章、content 不做不必要修改。
+  - 模型回显的 id 仅属解析协议，不作 ownership 依据。不重建 `Scene.id`、不动 `beatsByScene` key、不改 `SourceSpan.chapterId`。
+  - 归一化只在 `AppContainer` 协调层完成（copy 不可变值对象），**未修改** `domain/` / DTO / Mapper / Remote / Prompt / Schema。
+- **归属权威性**：最终 `ImportedStory` 的归属以**本次导入实际产出的内容**为准（`content` 里的 `storyId` / `chapterId`）——只有产出才真正决定场景与角色挂在哪个作品 / 章节下。本地样例实现忽略请求参数，远程实现由模型回显请求里给出的 id；两种情况下 story / chapters / content 都必然自洽。
+- **Sample fixture 处理**：`SampleStoryData` 降级为 fixture（仅测试与样例说明使用）；本地样例仍保留自己的 `story-1` / `chapter-1` / `chapter-2`，但这些 id **不再**成为普通导入的默认 id。
+- **placeholder metadata**：`Story.title = "未命名作品"`、`author = "未命名作者"`、`synopsis = ""`、`Chapter.title = "未命名章节"`、`Chapter.index` = 章节出现顺序。**不是小说真实 metadata**，将在 Phase 5B-2 由用户显式提供的信息替换（代码注释与 `CURRENT_PHASE.md` 均已标明）。
+- **Failure / Partial / Importing（未变）**：Success / Partial → 写入快照；Failure → 不写入（首次失败仍无 Story，后续失败保留上一次成功快照）；Importing → 旧快照继续可见。
+- **启动预载**：`AIChatNovelApplication` **未改动**，它调用的 `importStory()` 走的仍是同一套「当前导入」写入路径，不再出现「Story metadata 一套、Content 另一套」的混合状态。
+- **Explorer**：**未修改**。`StoryExplorerViewModel` 仍只读 Repository；Repository 修好后 Story / Chapter 自动来自当前导入快照。
+- **测试结果**：`./gradlew test --rerun` → **97 用例，0 失败，0 错误，1 跳过**（跳过 = `DeepSeekLiveIntegrationTest`，无 Key）
+  - 上一轮 85 → 97（+12）：`AppContainerTest` 4→14、`StoryExplorerViewModelTest` 7→9
+  - 新增覆盖：模型返回**错误 storyId / chapterId** 时 ownership 仍为 request 的 authoritative 值；所有 character 归到权威 storyId；所有 scene 归到权威 chapterId 且属于本次导入的 chapters；连续两次 Remote 导入 id 不同且 content 不串；本地样例保留 `story-1` + `chapter-1`/`chapter-2` 两章与正确 index；未导入时 Story/Chapter 为空；Partial 替换快照；Failure 不动快照；**导入进行中旧快照继续可见**（MockWebServer 延迟 + 并发）；Explorer 能把 Story / Chapter / Scene / Beat 正确关联
+- **构建结果**：`assembleDebug` BUILD SUCCESSFUL，无 Kotlin 编译警告
+- **越界检查**：`git status` 仅 7 个文件（6 改 + 1 新增）；Domain / DTO / Validator / Mapper / Remote / PromptBuilder / ParseSchema / UI / Navigation / Gradle **均未改动**
+- **Git**：**未 commit、未 push**，HEAD 仍为 `f30208b`
+- **遗留**：真实 Story / Chapter metadata（Phase 5B-2）；多次导入只保留当前快照（符合本阶段要求）
+
+---
+
 ## 未开始
 
-Phase 5B 及以后：**尚未开始，等待项目负责人确认。**
+Phase 5B-2 及以后：**尚未开始，等待项目负责人确认。**

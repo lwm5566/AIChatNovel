@@ -1,5 +1,10 @@
 package com.aichatnovel.app.viewmodel
 
+import com.aichatnovel.app.data.repository.ImportedStory
+import com.aichatnovel.app.data.repository.InMemoryCharacterRepository
+import com.aichatnovel.app.data.repository.InMemoryPerformanceRepository
+import com.aichatnovel.app.data.repository.InMemoryStoryRepository
+import com.aichatnovel.app.data.repository.StoryContentStore
 import com.aichatnovel.app.domain.model.Action
 import com.aichatnovel.app.domain.model.ActionEvent
 import com.aichatnovel.app.domain.model.Beat
@@ -23,6 +28,7 @@ import com.aichatnovel.app.domain.model.SoundEvent
 import com.aichatnovel.app.domain.model.SourceSpan
 import com.aichatnovel.app.domain.model.SpeechParams
 import com.aichatnovel.app.domain.model.Story
+import com.aichatnovel.app.domain.model.StoryContent
 import com.aichatnovel.app.domain.model.Timeline
 import com.aichatnovel.app.domain.model.Timing
 import com.aichatnovel.app.domain.model.Utterance
@@ -41,6 +47,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -161,6 +168,82 @@ class StoryExplorerViewModelTest {
         assertFalse(state.isLoading)
         assertEquals("星海回声", state.story?.title)
         assertTrue(state.chapters.single().scenes.isEmpty())
+    }
+
+    @Test
+    fun `story chapters and scenes are associated through the current import store`() = runTest(dispatcher) {
+        val store = StoryContentStore()
+        store.replace(
+            ImportedStory(
+                story = Story(id = "story-x", title = "未命名作品", author = "未命名作者", synopsis = ""),
+                chapters = listOf(
+                    Chapter(id = "chapter-x", storyId = "story-x", index = 1, title = "未命名章节"),
+                ),
+                content = StoryContent(
+                    characters = listOf(
+                        Character(id = "char-甲", storyId = "story-x", name = "甲", description = ""),
+                    ),
+                    scenes = listOf(
+                        Scene(
+                            id = "chapter-x-s1",
+                            chapterId = "chapter-x",
+                            index = 1,
+                            title = "房间",
+                        ),
+                    ),
+                    beatsByScene = mapOf(
+                        "chapter-x-s1" to listOf(
+                            Beat(
+                                id = "beat-1",
+                                order = 1,
+                                events = listOf(
+                                    NarrationEvent(
+                                        id = "event-1",
+                                        timing = Timing(startOffsetMillis = 0L),
+                                        narration = Narration(text = "夜色沉下来。"),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val viewModel = StoryExplorerViewModel(
+            storyRepository = InMemoryStoryRepository(store),
+            performanceRepository = InMemoryPerformanceRepository(store),
+            characterRepository = InMemoryCharacterRepository(store),
+        )
+
+        val state = viewModel.uiState.first { !it.isLoading }
+
+        assertEquals("story-x", state.story?.id)
+        assertEquals("未命名作品", state.story?.title)
+        assertNotEquals("星海回声", state.story?.title)
+
+        val chapter = state.chapters.single()
+        assertEquals("chapter-x", chapter.id)
+        assertEquals(listOf("chapter-x-s1"), chapter.scenes.map { it.id })
+
+        val scene = chapter.scenes.single()
+        assertEquals("chapter-x-s1", scene.id)
+        assertEquals(1, scene.beats.size)
+        assertEquals("夜色沉下来。", scene.beats.single().events.single().summary)
+    }
+
+    @Test
+    fun `an empty store exposes no story at all`() = runTest(dispatcher) {
+        val viewModel = StoryExplorerViewModel(
+            storyRepository = InMemoryStoryRepository(StoryContentStore()),
+            performanceRepository = FakePerformanceRepository(emptyMap()),
+            characterRepository = FakeCharacterRepository(emptyList()),
+        )
+
+        val state = viewModel.uiState.first { !it.isLoading }
+
+        assertNull(state.story)
+        assertTrue(state.chapters.isEmpty())
     }
 
     private fun viewModel(innerMonologue: Boolean = false): StoryExplorerViewModel = StoryExplorerViewModel(

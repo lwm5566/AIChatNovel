@@ -4,10 +4,11 @@ import com.aichatnovel.app.domain.model.Chapter
 import com.aichatnovel.app.domain.model.Story
 
 /**
- * 作品与章节的元信息。
+ * 内置样例的归属常量（**sample fixture**，不是生产数据）。
  *
- * 角色、场景、演出节拍都改由解析管线产出（见 `LocalSampleStoryImportRepository`），
- * 这里只保留「作品 / 章节」这类不属于 AI 解析产物的信息。
+ * 只用于说明内置样例 JSON 里写的 story / chapter id 是什么。普通导入（本地样例或 DeepSeek）
+ * 都**不再**拿它当默认归属——那正是 Phase 5B-1 修掉的 M2 根因。保留它，是为了让样例的归属
+ * 在一处可读、可供测试引用。
  */
 object SampleStoryData {
 
