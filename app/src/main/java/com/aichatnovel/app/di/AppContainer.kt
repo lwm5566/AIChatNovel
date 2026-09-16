@@ -1,26 +1,53 @@
 package com.aichatnovel.app.di
 
+import android.content.Context
+import com.aichatnovel.app.data.ai.DeepSeekTextProvider
+import com.aichatnovel.app.data.audio.AndroidAudioDurationProbe
+import com.aichatnovel.app.data.audio.DefaultSceneAudioGenerator
+import com.aichatnovel.app.data.audio.FileAudioStorage
+import com.aichatnovel.app.data.audio.Media3AudioPlayer
+import com.aichatnovel.app.data.audio.NoOpAudioPlayer
 import com.aichatnovel.app.data.parser.sample.SampleParseSources
 import com.aichatnovel.app.data.remote.deepseek.DeepSeekLogger
 import com.aichatnovel.app.data.remote.deepseek.OkHttpDeepSeekApiClient
 import com.aichatnovel.app.data.repository.ImportedStory
+import com.aichatnovel.app.data.repository.InMemoryAudioAssetRepository
 import com.aichatnovel.app.data.repository.InMemoryCharacterRepository
 import com.aichatnovel.app.data.repository.InMemoryPerformanceRepository
+import com.aichatnovel.app.data.repository.InMemoryProviderCredentialStore
 import com.aichatnovel.app.data.repository.InMemorySettingsRepository
 import com.aichatnovel.app.data.repository.InMemoryStoryRepository
 import com.aichatnovel.app.data.repository.LocalSampleStoryImportRepository
 import com.aichatnovel.app.data.repository.RemoteStoryImportRepository
 import com.aichatnovel.app.data.repository.StoryContentStore
+import com.aichatnovel.app.data.tts.MicrosoftAzureTtsProvider
+import com.aichatnovel.app.data.tts.VolcengineTtsProvider
+import com.aichatnovel.app.data.tts.XiaomiMiMoTtsProvider
 import com.aichatnovel.app.domain.model.Chapter
 import com.aichatnovel.app.domain.model.Story
 import com.aichatnovel.app.domain.model.StoryContent
+import com.aichatnovel.app.domain.model.TtsProviderId
+import com.aichatnovel.app.repository.AudioAssetRepository
+import com.aichatnovel.app.repository.AudioDurationProbe
+import com.aichatnovel.app.repository.AudioPlayer
+import com.aichatnovel.app.repository.AudioStorage
 import com.aichatnovel.app.repository.CharacterRepository
 import com.aichatnovel.app.repository.PerformanceRepository
+import com.aichatnovel.app.repository.ProviderCredentialStore
+import com.aichatnovel.app.repository.SceneAudioGenerator
 import com.aichatnovel.app.repository.SettingsRepository
 import com.aichatnovel.app.repository.StoryImportRepository
 import com.aichatnovel.app.repository.StoryImportRequest
 import com.aichatnovel.app.repository.StoryImportResult
 import com.aichatnovel.app.repository.StoryRepository
+import com.aichatnovel.app.repository.TtsProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import okhttp3.OkHttpClient
+import java.io.File
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
  * 手工依赖容器。
@@ -35,6 +62,7 @@ class AppContainer(
     val config: AppConfig = AppConfig.fromBuildConfig(),
     logger: DeepSeekLogger = DeepSeekLogger.NoOp,
     private val importIdGenerator: ImportIdGenerator = SequentialImportIdGenerator(),
+    private val context: Context? = null,
 ) {
 
     val storyContentStore = StoryContentStore()
@@ -47,11 +75,57 @@ class AppContainer(
 
     val settingsRepository: SettingsRepository = InMemorySettingsRepository()
 
+    // ---- Phase 6C：语音与音频 ----
+
+    /** 已生成音频的索引（eventId → AudioAsset）。 */
+    val audioAssetRepository: AudioAssetRepository = InMemoryAudioAssetRepository()
+
+    /** 运行时凭据（内存，不落盘）。 */
+    val credentialStore: ProviderCredentialStore = InMemoryProviderCredentialStore()
+
+    private val audioStorage: AudioStorage = context
+        ?.let { FileAudioStorage(File(it.filesDir, AUDIO_DIR_NAME)) }
+        ?: UnavailableAudioStorage
+
+    private val durationProbe: AudioDurationProbe = context
+        ?.let { AndroidAudioDurationProbe() }
+        ?: UnavailableAudioDurationProbe
+
+    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(AUDIO_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(AUDIO_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .build()
+
+    /** 三个 TTS 供应商共用同一个 HTTP 栈，只有各自的 DTO 与认证分开。 */
+    private val ttsProviders: Map<TtsProviderId, TtsProvider> = mapOf(
+        TtsProviderId.AZURE to MicrosoftAzureTtsProvider(credentialStore, httpClient),
+        TtsProviderId.VOLCENGINE to VolcengineTtsProvider(credentialStore, httpClient),
+        TtsProviderId.XIAOMI_MIMO to XiaomiMiMoTtsProvider(credentialStore, httpClient),
+    )
+
+    /** 场景语音生成编排：ViewModel 与 UI 都不直接碰 provider。 */
+    val sceneAudioGenerator: SceneAudioGenerator = DefaultSceneAudioGenerator(
+        providers = ttsProviders,
+        credentialStore = credentialStore,
+        audioStorage = audioStorage,
+        durationProbe = durationProbe,
+        audioAssetRepository = audioAssetRepository,
+    )
+
+    private val audioScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** 真实音频播放器；未注入 Android Context 时退化为不做任何事的占位实现。 */
+    val audioPlayer: AudioPlayer by lazy {
+        context?.let { Media3AudioPlayer(it, audioScope) } ?: NoOpAudioPlayer()
+    }
+
     private val localSampleImportRepository: StoryImportRepository = LocalSampleStoryImportRepository()
 
     private val remoteImportRepository: StoryImportRepository = RemoteStoryImportRepository(
-        apiClient = OkHttpDeepSeekApiClient(config = config.deepSeek, logger = logger),
-        config = config.deepSeek,
+        textProvider = DeepSeekTextProvider(
+            apiClient = OkHttpDeepSeekApiClient(config = config.deepSeek, logger = logger),
+            config = config.deepSeek,
+        ),
         logger = logger,
     )
 
@@ -182,6 +256,27 @@ private fun StoryContent.toImportedStory(
 /** 用户未填写（null / 空白）时回退到明确的占位值；**从不**把空白字符串写进 Domain。 */
 private fun String?.orPlaceholder(placeholder: String): String =
     this?.trim().orEmpty().ifBlank { placeholder }
+
+private const val AUDIO_DIR_NAME = "audio"
+private const val AUDIO_CONNECT_TIMEOUT_SECONDS = 20L
+private const val AUDIO_READ_TIMEOUT_SECONDS = 120L
+
+/** 未注入 Android Context 时（例如单元测试）的音频存储：明确失败，不静默写到错误位置。 */
+private object UnavailableAudioStorage : AudioStorage {
+
+    override suspend fun save(fileName: String, bytes: ByteArray): String =
+        throw IOException("当前平台没有可用的音频存储")
+
+    override suspend fun delete(reference: String) = Unit
+
+    override suspend fun deleteAll() = Unit
+}
+
+/** 未注入 Android Context 时无法探测真实时长：一律返回 null，不伪造。 */
+private object UnavailableAudioDurationProbe : AudioDurationProbe {
+
+    override suspend fun probe(reference: String): Long? = null
+}
 
 private const val PLACEHOLDER_STORY_TITLE = "未命名作品"
 private const val PLACEHOLDER_STORY_AUTHOR = "未命名作者"

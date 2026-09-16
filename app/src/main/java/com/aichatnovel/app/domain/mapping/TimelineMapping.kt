@@ -1,5 +1,6 @@
 package com.aichatnovel.app.domain.mapping
 
+import com.aichatnovel.app.domain.model.AudioAsset
 import com.aichatnovel.app.domain.model.Beat
 import com.aichatnovel.app.domain.model.DurationSource
 import com.aichatnovel.app.domain.model.EventPosition
@@ -23,10 +24,18 @@ const val PLAYBACK_ESTIMATED_EVENT_DURATION_MILLIS = 1_000L
  * - 节拍按 [Beat.order] 升序依次排列；上一个节拍的结束位置就是下一个的起点；
  * - 事件位置 = 节拍起点 + [com.aichatnovel.app.domain.model.Timing.startOffsetMillis]（负数一律按 0 处理）；
  * - 事件时长为空时用 [PLAYBACK_ESTIMATED_EVENT_DURATION_MILLIS] 参与布局，来源标记为 [DurationSource.Estimated]；
+ * - 若该事件已经有**真实音频**（[audioAssets] 里的 [AudioAsset]），则用它的 `durationMillis`
+ *   并把来源标为 [DurationSource.Audio]；否则才回退到事件自身的时长 / 估算值。
  * - 总时长取「场景已知总时长」与「布局末端」的较大者，避免事件被已知时长截断；
  * - 没有任何节拍或事件时，得到一条时长为 0 的空时间轴。
+ *
+ * [audioAssets] 缺省为空：不传真实音频时，行为与 Phase 6B 完全一致。
  */
-fun buildExecutableTimeline(scene: Scene, beats: List<Beat>): ExecutableTimeline {
+fun buildExecutableTimeline(
+    scene: Scene,
+    beats: List<Beat>,
+    audioAssets: Map<String, AudioAsset> = emptyMap(),
+): ExecutableTimeline {
     val positions = mutableListOf<EventPosition>()
     var beatStart = 0L
 
@@ -34,17 +43,21 @@ fun buildExecutableTimeline(scene: Scene, beats: List<Beat>): ExecutableTimeline
         var beatEnd = beatStart
         beat.orderedEvents().forEach { event ->
             val start = beatStart + event.timing.startOffsetMillis.coerceAtLeast(0L)
+            val audio = audioAssets[event.id]
             val knownDuration = event.timing.durationMillis?.takeIf { it >= 0L }
-            val duration = knownDuration ?: PLAYBACK_ESTIMATED_EVENT_DURATION_MILLIS
+            val duration = audio?.durationMillis
+                ?: knownDuration
+                ?: PLAYBACK_ESTIMATED_EVENT_DURATION_MILLIS
             positions += EventPosition(
                 beatId = beat.id,
                 eventId = event.id,
                 startOffsetMillis = start,
                 durationMillis = duration,
-                durationSource = if (knownDuration == null) {
-                    DurationSource.Estimated
-                } else {
-                    event.timing.durationSource ?: DurationSource.Estimated
+                durationSource = when {
+                    // 只有真实产出的音频才能标成 Audio
+                    audio != null -> DurationSource.Audio
+                    knownDuration == null -> DurationSource.Estimated
+                    else -> event.timing.durationSource ?: DurationSource.Estimated
                 },
             )
             beatEnd = maxOf(beatEnd, start + duration)

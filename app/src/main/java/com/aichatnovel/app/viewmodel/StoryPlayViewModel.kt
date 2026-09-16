@@ -13,6 +13,7 @@ import com.aichatnovel.app.domain.mapping.effectiveSpeakerId
 import com.aichatnovel.app.domain.mapping.effectiveVoiceProfile
 import com.aichatnovel.app.domain.mapping.orderedEvents
 import com.aichatnovel.app.domain.model.ActionEvent
+import com.aichatnovel.app.domain.model.AudioAsset
 import com.aichatnovel.app.domain.model.Beat
 import com.aichatnovel.app.domain.model.CameraEvent
 import com.aichatnovel.app.domain.model.DialogueEvent
@@ -26,9 +27,17 @@ import com.aichatnovel.app.domain.model.PresentationMode
 import com.aichatnovel.app.domain.model.Scene
 import com.aichatnovel.app.domain.model.SoundEvent
 import com.aichatnovel.app.domain.model.Timing
+import com.aichatnovel.app.domain.model.TtsProviderId
+import com.aichatnovel.app.domain.model.TtsRunConfig
 import com.aichatnovel.app.domain.model.VoiceProfile
+import com.aichatnovel.app.repository.AudioAssetRepository
+import com.aichatnovel.app.repository.AudioPlayer
+import com.aichatnovel.app.repository.AudioPlayerStatus
 import com.aichatnovel.app.repository.CharacterRepository
 import com.aichatnovel.app.repository.PerformanceRepository
+import com.aichatnovel.app.repository.ProviderCredentialStore
+import com.aichatnovel.app.repository.SceneAudioGenerator
+import com.aichatnovel.app.repository.SceneAudioResult
 import com.aichatnovel.app.repository.StoryRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -39,12 +48,14 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -74,6 +85,33 @@ data class StoryPlayUiState(
     val beats: List<BeatUi> = emptyList(),
 )
 
+/** 场景语音生成的状态。 */
+enum class AudioGenerationStatus {
+
+    /** 还没发起过生成。 */
+    Idle,
+
+    Generating,
+
+    /** 已经成功（可能部分成功，看 [AudioState.message]）。 */
+    Ready,
+
+    Failed,
+}
+
+/**
+ * 语音侧状态：供应商选择、凭据是否已配置、生成进度。
+ *
+ * 与 [StoryPlayUiState] 分开，因为它是**运行配置**而不是剧情内容。
+ */
+data class AudioState(
+    val providerId: TtsProviderId = TtsProviderId.AZURE,
+    val providerConfigured: Boolean = false,
+    val status: AudioGenerationStatus = AudioGenerationStatus.Idle,
+    val message: String? = null,
+    val generatedCount: Int = 0,
+)
+
 /**
  * 剧情演出页 ViewModel：把某个场景的演出节拍转换为可直接渲染的结构。
  *
@@ -83,8 +121,12 @@ data class StoryPlayUiState(
 class StoryPlayViewModel(
     sceneId: String?,
     performanceRepository: PerformanceRepository,
-    characterRepository: CharacterRepository,
+    private val characterRepository: CharacterRepository,
     storyRepository: StoryRepository,
+    audioAssetRepository: AudioAssetRepository? = null,
+    credentialStore: ProviderCredentialStore? = null,
+    private val sceneAudioGenerator: SceneAudioGenerator? = null,
+    private val audioPlayer: AudioPlayer? = null,
 ) : ViewModel() {
 
     private val scene: Flow<Scene?> = if (sceneId != null) {
@@ -108,10 +150,31 @@ class StoryPlayViewModel(
             if (resolvedSceneId == null) flowOf(emptyList()) else performanceRepository.observeBeats(resolvedSceneId)
         }
 
-    /** 当前场景的可执行时间轴；场景或节拍变化时重建。 */
-    private val timelineFlow: Flow<ExecutableTimeline> = combine(scene, beats) { currentScene, beatList ->
-        if (currentScene == null) ExecutableTimeline() else buildExecutableTimeline(currentScene, beatList)
-    }
+    private val audioAssets: Flow<Map<String, AudioAsset>> =
+        audioAssetRepository?.observeAudioAssets() ?: flowOf(emptyMap())
+
+    private val configuredProviders: Flow<Set<TtsProviderId>> =
+        credentialStore?.observeConfiguredProviders() ?: flowOf(emptySet())
+
+    private var currentAudioAssets: Map<String, AudioAsset> = emptyMap()
+
+    private var configured: Set<TtsProviderId> = emptySet()
+
+    private val _audioState = MutableStateFlow(AudioState())
+
+    /** 语音运行状态：供应商选择、凭据、生成进度。 */
+    val audioState: StateFlow<AudioState> = _audioState.asStateFlow()
+
+    private var generationJob: Job? = null
+
+    private var loadedEventId: String? = null
+
+    /** 当前场景的可执行时间轴；场景、节拍或已生成音频变化时重建。 */
+    private val timelineFlow: Flow<ExecutableTimeline> =
+        combine(scene, beats, audioAssets) { currentScene, beatList, assets ->
+            if (currentScene == null) ExecutableTimeline()
+            else buildExecutableTimeline(currentScene, beatList, assets)
+        }
 
     private val _timeline = MutableStateFlow(ExecutableTimeline())
 
@@ -131,6 +194,17 @@ class StoryPlayViewModel(
                 stopTicking()
                 _timeline.value = newTimeline
                 _playbackState.value = PlaybackState(durationMillis = newTimeline.totalDurationMillis)
+            }
+            .launchIn(viewModelScope)
+
+        audioAssets
+            .onEach { currentAudioAssets = it }
+            .launchIn(viewModelScope)
+
+        configuredProviders
+            .onEach { configured =
+                it
+                _audioState.update { state -> state.copy(providerConfigured = state.providerId in it) }
             }
             .launchIn(viewModelScope)
     }
@@ -170,22 +244,99 @@ class StoryPlayViewModel(
     fun pause() {
         _playbackState.value = _playbackState.value.pause()
         stopTicking()
+        loadedEventId = null
+        viewModelScope.launch { audioPlayer?.pause() }
     }
 
     /** 重置到初始位置。 */
     fun reset() {
         stopTicking()
+        loadedEventId = null
         _playbackState.value = _playbackState.value.reset()
+        viewModelScope.launch { audioPlayer?.stop() }
     }
 
     /** 跳转到指定位置，并立刻重新定位当前事件。 */
     fun seekTo(positionMillis: Long) {
         val next = _playbackState.value.seekTo(positionMillis)
         _playbackState.value = next.withCursor(_timeline.value.cursorAt(next.positionMillis))
+        // 位置变了，当前事件的音频需要重新加载
+        loadedEventId = null
+    }
+
+    /** 切换 TTS 供应商（运行配置，不进入剧情数据）。 */
+    fun selectProvider(providerId: TtsProviderId) {
+        _audioState.update { it.copy(providerId = providerId, providerConfigured = providerId in configured) }
+    }
+
+    /**
+     * 生成当前场景的语音。
+     *
+     * 编排全部交给 [sceneAudioGenerator]；本方法只负责状态与错误呈现，
+     * 不拼接任何供应商请求，也不直接碰文件系统。
+     */
+    fun generateSceneAudio() {
+        if (generationJob?.isActive == true) return
+        val generator = sceneAudioGenerator
+        if (generator == null) {
+            _audioState.update {
+                it.copy(status = AudioGenerationStatus.Failed, message = "当前环境没有可用的语音生成能力")
+            }
+            return
+        }
+        val providerId = _audioState.value.providerId
+        if (!generator.isProviderConfigured(providerId)) {
+            _audioState.update {
+                it.copy(
+                    status = AudioGenerationStatus.Failed,
+                    message = "${providerId.displayName} 未配置凭据，未发起请求",
+                )
+            }
+            return
+        }
+
+        _audioState.update { it.copy(status = AudioGenerationStatus.Generating, message = null) }
+        generationJob = viewModelScope.launch {
+            val sceneBeats = beats.first()
+            val sceneCharacters = characterRepository.observeAllCharacters().first()
+            val result = generator.generate(
+                beats = sceneBeats,
+                characters = sceneCharacters,
+                config = TtsRunConfig(providerId = providerId),
+            )
+            _audioState.update { state ->
+                when (result) {
+                    is SceneAudioResult.Success -> state.copy(
+                        status = AudioGenerationStatus.Ready,
+                        message = null,
+                        generatedCount = result.generated,
+                    )
+
+                    SceneAudioResult.NothingToSynthesize -> state.copy(
+                        status = AudioGenerationStatus.Ready,
+                        message = "本场景没有需要发声的事件",
+                        generatedCount = 0,
+                    )
+
+                    is SceneAudioResult.Partial -> state.copy(
+                        status = AudioGenerationStatus.Ready,
+                        message = "已完成 ${result.generated} 条，${result.failures.size} 条失败",
+                        generatedCount = result.generated,
+                    )
+
+                    is SceneAudioResult.Failure -> state.copy(
+                        status = AudioGenerationStatus.Failed,
+                        message = result.message ?: "语音生成失败",
+                    )
+                }
+            }
+        }
     }
 
     override fun onCleared() {
         stopTicking()
+        generationJob?.cancel()
+        generationJob = null
         super.onCleared()
     }
 
@@ -196,10 +347,40 @@ class StoryPlayViewModel(
                 delay(TICK_INTERVAL_MILLIS)
                 val current = _playbackState.value
                 if (current.status != PlaybackStatus.Playing) break
-                val advanced = current.advanceBy(TICK_INTERVAL_MILLIS)
+                val advanced = advance(current)
                 _playbackState.value = advanced.withCursor(_timeline.value.cursorAt(advanced.positionMillis))
                 if (advanced.status != PlaybackStatus.Playing) break
             }
+        }
+    }
+
+    /**
+     * 推进一个时间片。**同一时刻只有一个时间源**：
+     * - 当前事件有真实音频 → 读播放器位置（真实时钟），本方法不自行累加；
+     * - 没有真实音频（空档 / 未生成）→ 保留 Phase 6B 的本地模拟推进。
+     */
+    private suspend fun advance(current: PlaybackState): PlaybackState {
+        val player = audioPlayer ?: return current.advanceBy(TICK_INTERVAL_MILLIS)
+        val eventId = _timeline.value.cursorAt(current.positionMillis).eventId
+            ?: return current.advanceBy(TICK_INTERVAL_MILLIS)
+        val asset = currentAudioAssets[eventId] ?: return current.advanceBy(TICK_INTERVAL_MILLIS)
+        val eventStart = _timeline.value.positions
+            .firstOrNull { it.eventId == eventId }
+            ?.startOffsetMillis
+            ?: return current.advanceBy(TICK_INTERVAL_MILLIS)
+
+        if (loadedEventId != eventId) {
+            loadedEventId = eventId
+            player.load(asset.playbackReference)
+            player.play()
+        }
+
+        val playerState = player.state.first()
+        return if (playerState.status == AudioPlayerStatus.ENDED) {
+            loadedEventId = null
+            current.syncTo(eventStart + asset.durationMillis)
+        } else {
+            current.syncTo(eventStart + playerState.positionMillis)
         }
     }
 

@@ -1,5 +1,6 @@
 package com.aichatnovel.app.data.remote.deepseek
 
+import com.aichatnovel.app.data.ai.DeepSeekTextProvider
 import com.aichatnovel.app.data.parser.sample.SampleParseSource
 import com.aichatnovel.app.data.parser.sample.SampleParseSources
 import com.aichatnovel.app.data.repository.RemoteStoryImportRepository
@@ -56,8 +57,10 @@ class DeepSeekLiveIntegrationTest {
     fun `live deepseek parses both sample chapters`() = runTest(timeout = 10.minutes) {
         val config = DeepSeekConfig(apiKey = apiKey)
         val repository = RemoteStoryImportRepository(
-            apiClient = OkHttpDeepSeekApiClient(config),
-            config = config,
+            textProvider = DeepSeekTextProvider(
+                apiClient = OkHttpDeepSeekApiClient(config),
+                config = config,
+            ),
         )
 
         val chapters = listOf(

@@ -22,7 +22,10 @@ sealed interface DeepSeekStoryParseResult {
 }
 
 /**
- * 「Raw Response → ParseResponseDto」这一步。
+ * 「模型正文 → ParseResponseDto」这一步。
+ *
+ * 职责变化（Phase 6C）：拆「响应信封 → 正文」归 `DeepSeekTextProvider`，
+ * 本类只负责「正文 → DTO」，因此输入是纯文本。契约与解析语义未变。
  *
  * 严守契约：本策略**不接受** Markdown 包裹，也不会替模型剥离代码围栏——
  * 因为契约要求模型只输出 JSON，偷偷修补会让契约形同虚设。
@@ -32,8 +35,7 @@ class DeepSeekStoryParser(
     private val logger: DeepSeekLogger = DeepSeekLogger.NoOp,
 ) {
 
-    fun parse(response: DeepSeekChatResponse): DeepSeekStoryParseResult {
-        val content = response.choices.firstOrNull()?.message?.content
+    fun parse(content: String?): DeepSeekStoryParseResult {
         if (content.isNullOrBlank()) {
             logger.log(DeepSeekLogger.STAGE_JSON_PARSE, "结果：空响应")
             return DeepSeekStoryParseResult.Failure(

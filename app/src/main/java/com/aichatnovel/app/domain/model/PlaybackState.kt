@@ -88,6 +88,16 @@ data class PlaybackState(
         return copy(positionMillis = clamped, status = nextStatus)
     }
 
+    /** 用外部真实时钟（音频播放器位置）同步播放位置；仅播放中有效。 */
+    fun syncTo(positionMillis: Long): PlaybackState {
+        if (status != PlaybackStatus.Playing) return this
+        val next = positionMillis.coerceIn(0L, durationMillis)
+        return copy(
+            positionMillis = next,
+            status = if (next >= durationMillis) PlaybackStatus.Completed else PlaybackStatus.Playing,
+        )
+    }
+
     /** 更新当前定位；不影响播放位置与状态。 */
     fun withCursor(cursor: PlaybackCursor): PlaybackState =
         copy(currentBeatId = cursor.beatId, currentEventId = cursor.eventId)

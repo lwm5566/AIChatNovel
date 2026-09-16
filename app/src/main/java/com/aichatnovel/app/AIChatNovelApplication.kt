@@ -22,6 +22,7 @@ class AIChatNovelApplication : Application() {
     val container: AppContainer by lazy {
         AppContainer(
             logger = DeepSeekLogger { stage, message -> Log.d(LOG_TAG, "$stage $message") },
+            context = applicationContext,
         )
     }
 

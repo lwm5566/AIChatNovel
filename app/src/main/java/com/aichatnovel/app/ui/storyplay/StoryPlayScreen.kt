@@ -13,6 +13,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -32,9 +33,12 @@ import com.aichatnovel.app.domain.model.PlaybackState
 import com.aichatnovel.app.domain.model.PlaybackStatus
 import com.aichatnovel.app.domain.model.PresentationMode
 import com.aichatnovel.app.domain.model.Timing
+import com.aichatnovel.app.domain.model.TtsProviderId
 import com.aichatnovel.app.ui.components.EmptyState
 import com.aichatnovel.app.ui.components.LoadingState
 import com.aichatnovel.app.ui.components.presentationModeLabel
+import com.aichatnovel.app.viewmodel.AudioGenerationStatus
+import com.aichatnovel.app.viewmodel.AudioState
 import com.aichatnovel.app.viewmodel.BeatUi
 import com.aichatnovel.app.viewmodel.PerformanceLine
 import com.aichatnovel.app.viewmodel.StoryPlayUiState
@@ -48,13 +52,17 @@ fun StoryPlayRoute(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val audioState by viewModel.audioState.collectAsStateWithLifecycle()
     StoryPlayScreen(
         uiState = uiState,
         playbackState = playbackState,
+        audioState = audioState,
         onPlay = viewModel::play,
         onPause = viewModel::pause,
         onReset = viewModel::reset,
         onSeek = viewModel::seekTo,
+        onSelectProvider = viewModel::selectProvider,
+        onGenerateAudio = viewModel::generateSceneAudio,
         onBack = onBack,
     )
 }
@@ -68,10 +76,13 @@ fun StoryPlayRoute(
 fun StoryPlayScreen(
     uiState: StoryPlayUiState,
     playbackState: PlaybackState,
+    audioState: AudioState,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onReset: () -> Unit,
     onSeek: (Long) -> Unit,
+    onSelectProvider: (TtsProviderId) -> Unit,
+    onGenerateAudio: () -> Unit,
     onBack: () -> Unit,
 ) {
     Scaffold(
@@ -111,6 +122,14 @@ fun StoryPlayScreen(
                     )
                 }
 
+                item(key = "audio-controls") {
+                    AudioControls(
+                        audioState = audioState,
+                        onSelectProvider = onSelectProvider,
+                        onGenerateAudio = onGenerateAudio,
+                    )
+                }
+
                 uiState.beats.forEach { beat ->
                     item(key = beat.id) {
                         BeatHeader(beat = beat, isCurrent = beat.id == playbackState.currentBeatId)
@@ -123,6 +142,64 @@ fun StoryPlayScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudioControls(
+    audioState: AudioState,
+    onSelectProvider: (TtsProviderId) -> Unit,
+    onGenerateAudio: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "语音合成",
+                style = MaterialTheme.typography.titleSmall,
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TtsProviderId.entries.forEach { provider ->
+                    FilterChip(
+                        selected = provider == audioState.providerId,
+                        onClick = { onSelectProvider(provider) },
+                        label = { Text(provider.displayName) },
+                    )
+                }
+            }
+
+            Text(
+                text = if (audioState.providerConfigured) {
+                    "凭据：已配置"
+                } else {
+                    "凭据：未配置（不会伪造生成成功）"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Button(
+                onClick = onGenerateAudio,
+                enabled = audioState.status != AudioGenerationStatus.Generating,
+            ) {
+                Text(if (audioState.status == AudioGenerationStatus.Generating) "生成中…" else "生成语音")
+            }
+
+            audioState.message?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (audioState.status == AudioGenerationStatus.Failed) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
             }
         }
     }

@@ -1,11 +1,27 @@
 # CURRENT PHASE
 
 > 本文件**只表示「现在」**。阶段切换时整体重写，不要在这里堆积历史（历史放 `PHASE_LOG.md`）。
-> 最后更新：Phase 6B 实现完成后（本阶段改动已提交到本地 `master`，尚未 push）。
+> 最后更新：Phase 6C 实现完成后（改动已提交到本地 `master`，尚未 push）。
 
 ## 当前状态
 
-**Phase 6B implementation complete —— 可执行时间轴与 StoryPlay 播放基础已建立；等待 Review Gate。**
+**Phase 6C implementation complete —— AI Provider + 三路 TTS + 真实音频时长回填 + Media3 播放基础；等待 Review Gate。**
+
+- **Phase 5A / 5B-1 / 5B-2 / 5B-3 / 6A**：**已 COMPLETE / CLOSED**（已 push）
+- **Phase 6B**：**已 COMPLETE / CLOSED**（`a8bb2e8` 实现 + `b7adf1c` Review Gate，**未 push**）
+- **Phase 6C**：**实现完成**（AI Provider + Azure / 火山 / MiMo TTS + AudioAsset + duration probe + Timeline backfill + Media3 + StoryPlay）；**未 push**
+- **Phase 4（真实 DeepSeek 验证）**：仍 **BLOCKED / DEFERRED**（无有效 API Key）
+- **三个 TTS 供应商均未做 live 调用**（无凭据）：只有 implementation + unit tests（MockWebServer）
+
+## 本阶段（Phase 6C）关键事实
+
+- 新增 `AudioAsset` / `TtsRequest` / `TtsRunConfig` / `AiTextProvider` / `TtsProvider` / `AudioStorage` / `AudioDurationProbe` / `AudioPlayer` / `AudioAssetRepository` / `ProviderCredentialStore` / `SceneAudioGenerator`
+- `DurationSource.Audio` 的唯一来源是 `AudioDurationProbe` 从**真实音频文件**读出的时长；估算值无法构造 `AudioAsset`
+- `buildExecutableTimeline(scene, beats, audioAssets = emptyMap())`：`audioAssets` 缺省时行为与 Phase 6B 完全一致，**cursor 边界语义与 6B 测试全部保留**
+- `PlaybackState` **只新增** `syncTo(position)`；`play/pause/reset/seekTo/advanceBy/Completed` 语义未改
+- 播放时间源：有真实音频 → 播放器位置（唯一时钟）；无音频 → 保留 6B 本地模拟。**同一时刻只走一条分支**
+- 测试：**261 / 0 failures / 0 errors / 1 skipped**（Debug 与 Release）；`assembleDebug` BUILD SUCCESSFUL；Kotlin 警告 0
+- 凭据只做**内存**注入（`InMemoryProviderCredentialStore`），不落盘、不进 BuildConfig、不进日志
 
 - **Phase 5A**：**已 COMPLETE / CLOSED**（commit `f30208b`，已 push）
 - **Phase 5B-1**：**已 COMPLETE / CLOSED**（commit `9d59177`，已 push）

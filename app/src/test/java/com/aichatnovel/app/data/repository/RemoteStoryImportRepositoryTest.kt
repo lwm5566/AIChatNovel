@@ -1,5 +1,6 @@
 package com.aichatnovel.app.data.repository
 
+import com.aichatnovel.app.data.ai.DeepSeekTextProvider
 import com.aichatnovel.app.data.parser.validation.ValidationCode
 import com.aichatnovel.app.data.remote.deepseek.DeepSeekApiClient
 import com.aichatnovel.app.data.remote.deepseek.DeepSeekApiResult
@@ -67,8 +68,10 @@ class RemoteStoryImportRepositoryTest {
         client: DeepSeekApiClient,
         logger: DeepSeekLogger = DeepSeekLogger.NoOp,
     ) = RemoteStoryImportRepository(
-        apiClient = client,
-        config = DeepSeekConfig(apiKey = "test-key-not-real", model = "deepseek-chat"),
+        textProvider = DeepSeekTextProvider(
+            apiClient = client,
+            config = DeepSeekConfig(apiKey = "test-key-not-real", model = "deepseek-chat"),
+        ),
         logger = logger,
     )
 

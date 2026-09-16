@@ -8,17 +8,11 @@ class DeepSeekStoryParserTest {
 
     private val parser = DeepSeekStoryParser()
 
-    private fun envelope(content: String?) = DeepSeekChatResponse(
-        id = "test",
-        model = "deepseek-chat",
-        choices = listOf(
-            DeepSeekChoice(
-                index = 0,
-                message = content?.let { DeepSeekMessage(role = "assistant", content = it) },
-                finishReason = "stop",
-            ),
-        ),
-    )
+    /**
+     * 解析器的输入现在是「模型正文」本身：拆「响应信封 → 正文」已上移到 `DeepSeekTextProvider`。
+     * 本文件只验证「正文 → DTO」这一段。
+     */
+    private fun envelope(content: String?): String? = content
 
     private val validJson = """
         {
@@ -79,7 +73,7 @@ class DeepSeekStoryParserTest {
         )
         assertEquals(
             DeepSeekStoryParseResult.Reason.EMPTY_RESPONSE,
-            (parser.parse(DeepSeekChatResponse(choices = emptyList())) as DeepSeekStoryParseResult.Failure).reason,
+            (parser.parse(envelope(null)) as DeepSeekStoryParseResult.Failure).reason,
         )
     }
 

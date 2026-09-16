@@ -399,6 +399,64 @@
 
 ---
 
+## Phase 6C — AI Provider + 多 TTS + 真实音频播放闭环
+
+- **目标**：把链路从「导入 → 静态演出」推到「分析 → 语音合成 → 真实音频 → 时间轴 → 播放」。
+- **不是** TTS 本地合成、不是视频阶段。
+
+### 新增（生产）
+
+| 文件 | 作用 |
+|---|---|
+| `domain/model/AudioAsset.kt` | `AudioAsset` / `AudioFormat` / `TtsProviderId`；`require(durationMillis > 0)`——估算值无法构造出 AudioAsset |
+| `domain/model/TtsRequest.kt` | `TtsRequest`（无供应商 JSON）+ `TtsRunConfig`（运行配置：provider/locale/格式/旁白音色） |
+| `domain/mapping/TtsMapping.kt` | `speakableText/voiceId/speechParams` + `toTtsRequest`；旁白不虚构 Character |
+| `repository/AiTextProvider.kt` | `AiTextRequest` / `AiTextResult` / `AiTextFailure` / `AiTextProvider`（只返回文本） |
+| `repository/TtsProvider.kt` | `TtsFailure`（11 类）/ `TtsResult`（只给字节+格式）/ `TtsProvider` |
+| `repository/AudioStorage.kt` | `AudioStorage` + `AudioDurationProbe`（Audio 时长的唯一合法来源） |
+| `repository/AudioPlayer.kt` | `AudioPlayer` / `AudioPlayerState`（不暴露 Media3） |
+| `repository/AudioAssetRepository.kt` | `eventId → AudioAsset` |
+| `repository/ProviderCredentialStore.kt` | 运行时凭据，`toString()` 永不输出明文 |
+| `repository/SceneAudioGenerator.kt` | 场景语音编排接口 + `SceneAudioResult` |
+| `data/ai/DeepSeekTextProvider.kt` | 拍「响应信封 → 正文」；不解析 DTO、不接触 domain |
+| `data/tts/TtsProviders.kt` | Azure / 火山引擎 / 小米 MiMo 三个真实实现（各自 DTO） |
+| `data/audio/AudioPlatform.kt` | `FileAudioStorage` / `AndroidAudioDurationProbe` / `Media3AudioPlayer` / `NoOpAudioPlayer` |
+| `data/audio/DefaultSceneAudioGenerator.kt` | 顺序编排：event → TtsRequest → Provider → 落盘 → 真实时长 → AudioAsset |
+| `data/repository/InMemoryAudioAssetRepository.kt` | 内存音频索引（不引入 Room/DataStore） |
+| `data/repository/InMemoryProviderCredentialStore.kt` | 内存凭据（刻意不持久化） |
+
+### 修改（生产）
+
+| 文件 | 改动 |
+|---|---|
+| `data/remote/deepseek/DeepSeekStoryParser.kt` | 输入由 `DeepSeekChatResponse` 改为 `String?`（拆信封上移到 provider）；**解析语义未变** |
+| `data/repository/RemoteStoryImportRepository.kt` | 改依赖 `AiTextProvider`；解析仍走同一 Validator/Mapper 管线 |
+| `domain/mapping/TimelineMapping.kt` | `buildExecutableTimeline(..., audioAssets = emptyMap())`：真实音频→`DurationSource.Audio` |
+| `domain/model/PlaybackState.kt` | **只新增** `syncTo(position)`（外部真实时钟）；既有转换语义未改 |
+| `viewmodel/StoryPlayViewModel.kt` | 新增 `audioState` / `selectProvider` / `generateSceneAudio`；有真实音频时以播放器位置为唯一时间源 |
+| `ui/storyplay/StoryPlayScreen.kt` | 新增语音合成区（供应商选择 / 生成 / 状态 / 错误） |
+| `di/AppContainer.kt` | 装配三个 TTS Provider、音频存储 / 探针 / 播放器、编排器；未注入 Context 时明确降级 |
+| `AIChatNovelApplication.kt` | 传入 `applicationContext` |
+
+### 供应商接入（contract 已核实，**均未做 live 调用**）
+
+- **Azure Speech REST v1**：`POST {endpoint}/cognitiveservices/v1`，`Ocp-Apim-Subscription-Key`，SSML body（已对小说文本做 XML 转义），响应为二进制音频。
+- **火山引擎 V1 非流式**：`POST https://openspeech.bytedance.com/api/v1/tts`，`Authorization: Bearer;{token}`（**分号**），响应 `data` 为 base64 音频。
+- **小米 MiMo**：`POST https://api.xiaomimimo.com/v1/chat/completions`，`api-key`，`model=mimo-v2.5-tts`，音频在 `choices[0].message.audio.data`。
+
+### 验证结果
+
+| 项 | 结果 |
+|---|---|
+| 测试 | `./gradlew test --rerun` → **261 tests / 0 failures / 0 errors / 1 skipped**（Debug 与 Release 均 261） |
+| 测试数变化 | 233（6B Review Gate）→ **261**（**+28**） |
+| 新增测试 | `TtsProvidersTest` 14、`TtsAudioPipelineTest` 14 |
+| 构建 | `./gradlew assembleDebug` → **BUILD SUCCESSFUL**；Kotlin 警告 **0** |
+| `git diff --check` | clean |
+| 凭据泄露 | 无（测试均用 `fake-*`） |
+
+---
+
 ## 未开始
 
 下一阶段：**尚未开始，等待项目负责人确认。**

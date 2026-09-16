@@ -1,15 +1,15 @@
 package com.aichatnovel.app.data.repository
 
 import com.aichatnovel.app.data.parser.StoryParsePipeline
-import com.aichatnovel.app.data.remote.deepseek.DeepSeekApiClient
-import com.aichatnovel.app.data.remote.deepseek.DeepSeekApiResult
-import com.aichatnovel.app.data.remote.deepseek.DeepSeekChatRequest
-import com.aichatnovel.app.data.remote.deepseek.DeepSeekConfig
 import com.aichatnovel.app.data.remote.deepseek.DeepSeekLogger
-import com.aichatnovel.app.data.remote.deepseek.DeepSeekResponseFormat
+import com.aichatnovel.app.data.remote.deepseek.DeepSeekMessage
 import com.aichatnovel.app.data.remote.deepseek.DeepSeekStoryParseResult
 import com.aichatnovel.app.data.remote.deepseek.DeepSeekStoryParser
 import com.aichatnovel.app.data.remote.deepseek.PromptBuilder
+import com.aichatnovel.app.repository.AiTextFailure
+import com.aichatnovel.app.repository.AiTextProvider
+import com.aichatnovel.app.repository.AiTextRequest
+import com.aichatnovel.app.repository.AiTextResult
 import com.aichatnovel.app.repository.StoryImportFailure
 import com.aichatnovel.app.repository.StoryImportRepository
 import com.aichatnovel.app.repository.StoryImportRequest
@@ -22,14 +22,15 @@ import com.aichatnovel.app.repository.StoryImportResult
  * 校验与映射一律复用第三阶段的 [StoryParsePipeline]（内部就是 ParseValidator + AiParseMapper）。
  *
  * 数据流：
- * 原文 → PromptBuilder → DeepSeekApiClient → 原始响应 → DeepSeekStoryParser（ParseJson → ParseResponseDto）
+ * 原文 → PromptBuilder → [AiTextProvider]（DeepSeekTextProvider）→ 模型正文
+ *      → DeepSeekStoryParser（正文 → ParseJson → ParseResponseDto）
  *      → StoryParsePipeline（ParseValidator → AiParseMapper）→ StoryContent
  *
- * 网络层与 domain 之间始终隔着 DTO，DeepSeek 的任何对象都不会进入 domain。
+ * 依赖 [AiTextProvider] 抽象而非具体客户端：换成别的文本模型不需要改这里。
+ * 网络层与 domain 之间始终隔着 DTO，模型服务的任何对象都不会进入 domain。
  */
 class RemoteStoryImportRepository(
-    private val apiClient: DeepSeekApiClient,
-    private val config: DeepSeekConfig,
+    private val textProvider: AiTextProvider,
     private val promptBuilder: PromptBuilder = PromptBuilder(),
     private val storyParser: DeepSeekStoryParser = DeepSeekStoryParser(),
     private val pipeline: StoryParsePipeline = StoryParsePipeline(),
@@ -37,51 +38,27 @@ class RemoteStoryImportRepository(
 ) : StoryImportRepository {
 
     override suspend fun importStory(request: StoryImportRequest): StoryImportResult {
-        val apiRequest = DeepSeekChatRequest(
-            model = config.model,
-            messages = promptBuilder.buildMessages(
-                chapterId = request.chapterId,
-                storyId = request.storyId,
-                novelText = request.novelText,
-            ),
-            temperature = config.temperature,
-            maxTokens = config.maxTokens,
-            responseFormat = DeepSeekResponseFormat.JSON_OBJECT,
+        val messages = promptBuilder.buildMessages(
+            chapterId = request.chapterId,
+            storyId = request.storyId,
+            novelText = request.novelText,
+        )
+        val aiRequest = AiTextRequest(
+            userPrompt = messages.lastOrNull { it.role == DeepSeekMessage.ROLE_USER }?.content.orEmpty(),
+            systemPrompt = messages.firstOrNull { it.role == DeepSeekMessage.ROLE_SYSTEM }?.content,
+            requireJsonObject = true,
         )
 
-        val parseResult = when (val apiResult = apiClient.completeChat(apiRequest)) {
-            is DeepSeekApiResult.MissingApiKey -> return StoryImportResult.Failure(
-                StoryImportFailure.MISSING_API_KEY,
-                "未配置 DeepSeek API Key，未发起请求",
-            )
-
-            is DeepSeekApiResult.Timeout -> return StoryImportResult.Failure(
-                StoryImportFailure.TIMEOUT,
-                "请求 DeepSeek 超时：${apiResult.message}",
-            )
-
-            is DeepSeekApiResult.NetworkError -> return StoryImportResult.Failure(
-                StoryImportFailure.NETWORK,
-                "无法连接 DeepSeek：${apiResult.message}",
-            )
-
-            is DeepSeekApiResult.HttpError -> {
+        val parseResult = when (val aiResult = textProvider.complete(aiRequest)) {
+            is AiTextResult.Failure -> {
                 logger.log(
                     DeepSeekLogger.STAGE_RAW_RESPONSE,
-                    "HTTP 错误状态码=${apiResult.statusCode} body=${apiResult.body.orEmpty()}",
+                    "文本 provider 失败 reason=${aiResult.reason} status=${aiResult.httpStatus}",
                 )
-                return StoryImportResult.Failure(
-                    StoryImportFailure.HTTP_ERROR,
-                    "DeepSeek 返回 HTTP ${apiResult.statusCode}",
-                )
+                return aiResult.toImportFailure()
             }
 
-            is DeepSeekApiResult.MalformedEnvelope -> return StoryImportResult.Failure(
-                StoryImportFailure.MALFORMED_ENVELOPE,
-                apiResult.message,
-            )
-
-            is DeepSeekApiResult.Success -> storyParser.parse(apiResult.response)
+            is AiTextResult.Success -> storyParser.parse(aiResult.text)
         }
 
         if (parseResult is DeepSeekStoryParseResult.Failure) {
@@ -119,6 +96,19 @@ class RemoteStoryImportRepository(
         } else {
             StoryImportResult.Partial(pipelineResult.validation, content, parsed.dto.schemaVersion)
         }
+    }
+
+    private fun AiTextResult.Failure.toImportFailure(): StoryImportResult.Failure {
+        val failure = when (reason) {
+            AiTextFailure.MISSING_CREDENTIALS -> StoryImportFailure.MISSING_API_KEY
+            AiTextFailure.UNAUTHORIZED -> StoryImportFailure.HTTP_ERROR
+            AiTextFailure.TIMEOUT -> StoryImportFailure.TIMEOUT
+            AiTextFailure.NETWORK -> StoryImportFailure.NETWORK
+            AiTextFailure.HTTP_ERROR -> StoryImportFailure.HTTP_ERROR
+            AiTextFailure.MALFORMED_RESPONSE -> StoryImportFailure.MALFORMED_ENVELOPE
+            AiTextFailure.EMPTY_RESPONSE -> StoryImportFailure.EMPTY_RESPONSE
+        }
+        return StoryImportResult.Failure(failure, message ?: "文本模型调用失败")
     }
 
     private fun DeepSeekStoryParseResult.Reason.toImportFailure(): StoryImportFailure = when (this) {

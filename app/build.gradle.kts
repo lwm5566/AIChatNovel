@@ -89,6 +89,10 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
 
+    // Phase 6C：真实音频播放（Media3 / ExoPlayer）。
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.common)
+
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.kotlinx.coroutines.test)
