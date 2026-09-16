@@ -271,6 +271,54 @@
 
 ---
 
+## Phase 6A — 演出语义契约固化与 StoryPlay 只读链路补完
+
+- **背景**：Phase 5A / 5B-1 / 5B-2 / 5B-3 的成果都集中在**导入侧**（DTO → Validator → Mapper → Store → Repository → ownership / metadata / snapshot）。而**演出侧**——`orderedEvents`、三个 `effective*` 派生规则、Repository 排序、StoryPlay 的三级回退——**没有任何直接测试**（仅被展示层测试间接覆盖）。本阶段把这一层锁定为可回归契约，**不新增业务功能、不修改生产代码、不重写 Domain**。
+- **本阶段全部工作为新增测试文件**（生产代码 0 改动）
+
+| 工作包 | 文件 | 用例数 |
+|---|---|---|
+| 1 | `test/domain/mapping/PerformanceMappingTest.kt`（新增） | 11 |
+| 2 | `test/data/repository/InMemoryRepositoriesTest.kt`（新增） | 11 |
+| 3 | `test/viewmodel/StoryPlayViewModelTest.kt`（新增） | 16 |
+| 4 | `test/data/parser/mapping/AiParseMapperTest.kt`（新增） | 11 |
+
+- **工作包 1 — 演出映射规则**
+  - `orderedEvents`：**真正乱序输入**（600 / 0 / 300）→ 输出 [0, 300, 600]；起点相同的事件保持相对顺序；已有序输入保持不变
+  - `effectivePresentationMode`：override 优先；无 override 回落 sceneMode；override == sceneMode 时仍是 override
+  - `effectiveSpeakerId`：`utterance.speakerId` 优先，缺失回落 `dialogue.characterId`
+  - `effectiveVoiceProfile`：`voiceOverride` 优先；缺失回落角色档案；两者皆无 → null
+- **工作包 2 — Repository 读取契约**
+  - 夹具刻意把 `index` / `order` **打乱**并混入其他作品 / 章节的数据，因此排序与过滤都能被区分出来
+  - `observeChapters` / `observeScenes` / `observeBeats` 的排序；三种外键过滤不泄漏；`observeScene` 命中与未命中；`observeAllCharacters` 不过滤
+- **工作包 3 — StoryPlayViewModel 只读链路**（真实 `StoryContentStore` + 真实 InMemory Repository，非 Fake）
+  - 显式 `sceneId` 只出该场景（两个场景正反验证）；未知 `sceneId` 不出数据
+  - 无 `sceneId` 的三级回退：`story → 首个 chapter（index 1）→ 首个 scene（index 1）`
+  - 四种空数据（无 Story / 无 Chapter / 无 Scene / 无 Beat）均不崩溃、`beats` 为空、`isLoading` 最终为 false
+  - `BeatUi.label == "节拍 N"`，且节拍输出为 `order` 升序（夹具乱序存放）
+  - 六种 `PerformanceLine.kind`；说话者优先 `utterance.speakerId`；对白文本原样
+  - `voiceLabel == null`（当前无任何 VoiceProfile）
+  - 呈现介质：无 override 继承 scene mode；override 替换；override == sceneMode 保持
+- **工作包 4 — Mapper 边界规则**（只补测试，未改 Mapper）
+  - 有 `duration` 而无 `durationSource` → `DurationSource.Estimated`；缺 `duration` → 两者均 null；缺 `timing` → 起点 0 且无 duration
+  - `setting.backgroundRef` → `AssetRef(IMAGE)`（`source` 为空）；无 `backgroundRef` → null
+  - `participants` → `Scene.characters` 的 `CharacterSceneState(characterId)`，**重复收敛**，未声明角色被丢弃
+  - `Character` 的 `description` / `aliases` 映射；缺省→ `""` / 空表；**解析不会给角色音色或立绘**
+- **测试结果**：`./gradlew test --rerun` → **162 用例，0 失败，0 错误，1 跳过**（跳过 = `DeepSeekLiveIntegrationTest`，无有效 API Key）
+  - 上一轮 113 → 162（**+49**，全部为新增测试文件，未删除任何现有用例、未降低任何断言）
+- **构建结果**：`assembleDebug` BUILD SUCCESSFUL，无 Kotlin 编译警告
+- **生产缺陷**：**未发现**。四个工作包的测试除初稿一处测试代码自身的构造遗漏（`NarrationEventDto.text` 为必填）外，**一次通过**；未出现「期望 0/300/600、实际 600/0/300」这类与生产逻辑不符的情形，因此本阶段未触发「停止并报告」分支
+- **越界检查**：`git status` 仅新增 4 个测试文件 + 修改 2 份阶段文档；`app/src/main/**` **0 改动**（Domain / DTO / Validator / Mapper / parser / remote client / PromptBuilder / `ParseSchema` / `AppContainer` / `StoryContentStore` / 三个 InMemory Repository / ViewModel / UI / Navigation / Gradle / Manifest 均未触碰）
+- **明确未做**：`PresentationEvidence.sourceSpan` 的 UI 展示（保留为 backlog）；播放器 / TTS / 音频 / 视频 / MP4 / Timeline 重构 / `VoiceProfile` 绑定 / `CharacterSceneState` 填充 / `confidence` 落库 / Beat-Event ID 全局化 / Repository 双视图收敛 / 任何改名重构
+
+### Phase 6A 记录
+
+- **commit**：本阶段改动（4 个测试文件 + 2 份文档）随本阶段提交进入本地 `master`
+- **Git**：`origin/master` 仍为 `c85e33c`；本地领先 1 个 commit，**未 push**
+- **状态**：实现完成，**等待 Review Gate**
+
+---
+
 ## 未开始
 
 下一阶段：**尚未开始，等待项目负责人确认。**
